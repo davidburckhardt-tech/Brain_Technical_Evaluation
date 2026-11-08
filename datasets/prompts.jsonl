@@ -1,0 +1,4 @@
+{"id": "general-1", "category": "general", "prompt": "Explain the difference between supervised and unsupervised machine learning in a few sentences."}
+{"id": "code-1", "category": "code_generation", "prompt": "Write a Python function that checks whether a string is a palindrome, ignoring case and spaces."}
+{"id": "summary-1", "category": "summarization", "prompt": "Summarize the main trade-offs between running a large language model locally versus through a cloud API."}
+{"id": "knowledge-1", "category": "general_knowledge", "prompt": "What were the main causes of the fall of the Roman Empire?"}

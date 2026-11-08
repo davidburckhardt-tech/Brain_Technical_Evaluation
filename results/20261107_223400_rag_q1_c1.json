@@ -1,0 +1,23 @@
+{
+  "num_queries": 1,
+  "concurrency": 1,
+  "model": "qwen3:4b-q4_K_M",
+  "embedding_model": "nomic-embed-text",
+  "collection": "k8s_docs",
+  "wall_duration_s": 12.673059416003525,
+  "error_rate": 0.0,
+  "queries": [
+    {
+      "index": 0,
+      "question_id": "kubernetes-eval-manualv2-0018",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.941520624794066,
+      "generation_ttft_s": 8.852426041848958,
+      "generation_duration_s": 11.678505333140492,
+      "total_duration_s": 12.620037708897144,
+      "input_tokens": 532,
+      "output_tokens": 429
+    }
+  ]
+}

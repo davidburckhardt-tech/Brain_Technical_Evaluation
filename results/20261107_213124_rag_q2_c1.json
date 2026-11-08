@@ -1,0 +1,30 @@
+{
+  "num_queries": 2,
+  "concurrency": 1,
+  "model": "llama3:8b",
+  "embedding_model": "nomic-embed-text",
+  "collection": "k8s_docs",
+  "wall_duration_s": 3.3403168749064207,
+  "queries": [
+    {
+      "index": 0,
+      "question_id": "kubernetes-eval-manualv2-0018",
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.10412762500345707,
+      "generation_ttft_s": 0.04713895916938782,
+      "generation_duration_s": 0.6711487090215087,
+      "total_duration_s": 0.7752860826440156,
+      "output_tokens_approx": 18
+    },
+    {
+      "index": 1,
+      "question_id": "kubernetes-eval-manualv2-0019",
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.02931341715157032,
+      "generation_ttft_s": 1.7366007501259446,
+      "generation_duration_s": 2.4870721250772476,
+      "total_duration_s": 2.516394792124629,
+      "output_tokens_approx": 20
+    }
+  ]
+}

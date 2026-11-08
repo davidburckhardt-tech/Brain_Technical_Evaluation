@@ -1,0 +1,31 @@
+# Benchmark profile for the raw inference workload (Test 1).
+#
+# GuideLLM is the primary tool: it's the vllm-project's own benchmark client,
+# talks to any OpenAI-compatible server (Ollama in Phase 0, vLLM later), and is
+# lower-risk to set up than AIPerf.
+#
+# AIPerf is kept as a secondary option for when we are running against vLLM on
+# NVIDIA hardware: it can capture GPU telemetry alongside the request metrics,
+# which GuideLLM does not provide. It adds no value on a Mac (no nvidia-smi),
+# so it stays disabled until Phase 2+.
+
+guidellm:
+  # Phase 0 (validated): one request at a time, just to confirm the harness
+  # measures correctly. See scripts/run_benchmark.sh for the exact CLI.
+  phase_0_profile: "synchronous"
+  phase_0_request_count: 5
+
+  # Phase 2+ (real hardware, Test 1): concurrency sweep across 1 -> 4 -> 8
+  # users. NOT validated yet - the "sweep" profile's auto-derived rates
+  # failed on slow local hardware (see PROJECT_PLAN.md §9). On the real
+  # Brain units, either give sweep a longer max_duration, or set
+  # concurrency levels manually instead of letting it derive them.
+  test_1_profile: "sweep"
+
+  # Synthetic workload shape: ~550 input tokens, ~150 output tokens per request.
+  # Adjust once we define the real Test 1 prompt profile (~1000 in / 500 out).
+  data: "prompt_tokens=550,output_tokens=150"
+
+aiperf:
+  enabled: false
+  note: "Enable once benchmarking vLLM on NVIDIA hardware, to capture GPU utilization/VRAM alongside request metrics."

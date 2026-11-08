@@ -1,0 +1,12 @@
+.venv/
+.venv-vllm/
+.env
+
+# Benchmark outputs (JSON/CSV) are tracked - they're the evidence behind
+# RESULTS.md and the dashboard. Server logs/pids aren't useful to keep.
+results/*.log
+results/*.pid
+
+__pycache__/
+*.pyc
+.DS_Store

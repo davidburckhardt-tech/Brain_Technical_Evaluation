@@ -1,0 +1,41 @@
+# Model catalog for the Brain demo project.
+#
+# `smoke_test` is what Phase 0 actually runs right now, on Ollama, on a Mac.
+# `candidates` is the target list for the real hardware (Phase 2+, on vLLM),
+# kept here as a living reference so decisions are documented as they are made.
+
+smoke_test:
+  name: "llama3:8b"
+  runtime: "ollama"
+  purpose: "Validate that the benchmark harness (GuideLLM) measures a running model correctly, before touching real hardware."
+
+candidates:
+  - family: "Llama"
+    model: "llama3.1:70b"
+    runtime: "vllm"
+    quantization: "tbd (AWQ likely, pending VRAM confirmation)"
+    status: "reference model for comparison, pending hardware specs"
+
+  - family: "Mistral"
+    model: "mistral-small"
+    runtime: "vllm"
+    quantization: "tbd"
+    status: "requested by Nicolas"
+
+  - family: "GLM"
+    model: "glm-4.5-air"
+    runtime: "vllm"
+    quantization: "tbd"
+    status: "requested by Nicolas"
+
+  - family: "Qwen"
+    model: "qwen3:32b"
+    runtime: "vllm"
+    quantization: "tbd"
+    status: "reference model for comparison"
+
+  - family: "Thinking Machines Lab"
+    model: "inkling-small"
+    runtime: "vllm"
+    quantization: "tbd"
+    status: "conditional - needs ~600GB aggregate VRAM in BF16 (276B total / 12B active MoE). Confirm hardware scale before including."
