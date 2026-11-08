@@ -1,58 +1,58 @@
-# Corpus RAG — Kubernetes Documentation (Fase 0)
+# RAG Corpus — Kubernetes Documentation (Phase 0)
 
-## Fuente
+## Source
 
-[evgenypal/k8s-docs-rag-bench](https://hf-p-cfw.fyan.top/datasets/evgenypal/k8s-docs-rag-bench) en Hugging Face — documentación oficial de Kubernetes, en inglés, licencia **CC-BY-4.0**.
+[evgenypal/k8s-docs-rag-bench](https://hf-p-cfw.fyan.top/datasets/evgenypal/k8s-docs-rag-bench) on Hugging Face — official Kubernetes documentation, in English, **CC-BY-4.0** license.
 
-El dataset completo tiene:
-- 956 páginas HTML de documentación técnica real.
-- 7.908 chunks pre-divididos por los autores del dataset.
-- 5.144 pares de pregunta/respuesta verificados.
-- 172.700 etiquetas de evaluación (judge labels).
+The full dataset has:
+- 956 HTML pages of real technical documentation.
+- 7,908 chunks pre-split by the dataset's authors.
+- 5,144 verified question/answer pairs.
+- 172,700 evaluation labels (judge labels).
 
-## Qué se usa en esta fase (muestra, no el dataset completo)
+## What's used in this phase (a sample, not the full dataset)
 
-Bajar los 7.908 chunks completos no era necesario para validar el pipeline en Mac, así que se tomó una muestra dirigida a maximizar cobertura de preguntas verificadas dentro de un presupuesto chico de chunks:
+Downloading all 7,908 chunks wasn't necessary to validate the pipeline on Mac, so a sample was taken aimed at maximizing coverage of verified questions within a small chunk budget:
 
-- **Criterio de selección**: páginas con preguntas de evaluación asociadas, priorizando las páginas con más preguntas, excluyendo páginas gigantes (>20 chunks, ej. la referencia completa de `kubectl`) para no gastar presupuesto en una sola página.
-- **Resultado**: 62 páginas, 398 chunks, 485 pares de pregunta/respuesta cuyo `source_chunk` cae dentro de esos 398 chunks (o sea, con trazabilidad completa: cada pregunta tiene un chunk "correcto" conocido para validar retrieval).
+- **Selection criteria**: pages with associated evaluation questions, prioritizing pages with more questions, excluding giant pages (>20 chunks, e.g. the full `kubectl` reference) so as not to spend the whole budget on a single page.
+- **Result**: 62 pages, 398 chunks, 485 question/answer pairs whose `source_chunk` falls within those 398 chunks (i.e. with full traceability: every question has a known "correct" chunk to validate retrieval against).
 
-Archivos en `datasets/k8s_rag/`:
-- `corpus_sample.jsonl` — los 398 chunks.
-- `qa_eval_sample.jsonl` — las 485 preguntas/respuestas verificadas.
-- `README.md` — atribución y link al dataset completo.
+Files in `datasets/k8s_rag/`:
+- `corpus_sample.jsonl` — the 398 chunks.
+- `qa_eval_sample.jsonl` — the 485 verified questions/answers.
+- `README.md` — attribution and a link to the full dataset.
 
-## Esquema de los chunks (`corpus_sample.jsonl`)
+## Chunk schema (`corpus_sample.jsonl`)
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `id` | Id único del chunk (ej. `concepts_configuration_secret-0`) |
-| `page_id` | Id de la página de origen |
-| `url` | URL original en kubernetes.io/docs |
-| `title` | Título de la página |
-| `section` | Sección dentro de la página |
-| `text` | El texto del chunk (lo que se embebe) |
-| `chunk_index` | Posición del chunk dentro de la página |
-| `page_kind` | Tipo de página (`concept`, `narrative`, etc.) |
+| `id` | Unique chunk id (e.g. `concepts_configuration_secret-0`) |
+| `page_id` | Id of the source page |
+| `url` | Original URL on kubernetes.io/docs |
+| `title` | Page title |
+| `section` | Section within the page |
+| `text` | The chunk's text (what gets embedded) |
+| `chunk_index` | Position of the chunk within the page |
+| `page_kind` | Page type (`concept`, `narrative`, etc.) |
 
-## Esquema de las preguntas (`qa_eval_sample.jsonl`)
+## Question schema (`qa_eval_sample.jsonl`)
 
-| Campo | Descripción |
+| Field | Description |
 |---|---|
-| `id` | Id de la pregunta |
-| `question` | Pregunta en inglés |
-| `answer` | Respuesta de referencia (ground truth) |
-| `source_chunk` | Id del chunk que contiene la respuesta — permite verificar si el retrieval encontró el chunk correcto |
-| `source_page` | Página de origen |
-| `provenance` | Cómo se generó la pregunta (ej. `manual`) |
+| `id` | Question id |
+| `question` | Question, in English |
+| `answer` | Reference answer (ground truth) |
+| `source_chunk` | Id of the chunk containing the answer — lets you verify whether retrieval found the right chunk |
+| `source_page` | Source page |
+| `provenance` | How the question was generated (e.g. `manual`) |
 
-## Cómo está cargado hoy
+## How it's loaded today
 
-- **Embeddings**: `nomic-embed-text` (vía Ollama), 768 dimensiones.
-- **Base vectorial**: Qdrant, colección `k8s_docs`, 398 puntos, distancia coseno.
-- **Tiempo de ingesta medido**: ~11s para embeber + subir los 398 chunks en esta Mac (no es cuello de botella).
-- Script de ingesta: `benchmarks/rag/ingest.py --jsonl-file datasets/k8s_rag/corpus_sample.jsonl --collection k8s_docs`.
+- **Embeddings**: `nomic-embed-text` (via Ollama), 768 dimensions.
+- **Vector database**: Qdrant, collection `k8s_docs`, 398 points, cosine distance.
+- **Measured ingestion time**: ~11s to embed + upload all 398 chunks on this Mac (not a bottleneck).
+- Ingestion script: `benchmarks/rag/ingest.py --jsonl-file datasets/k8s_rag/corpus_sample.jsonl --collection k8s_docs`.
 
-## Escalar a la unidad real
+## Scaling to the real unit
 
-El dataset completo (952 páginas / 7.908 chunks) está disponible en el link de arriba si conviene usar el corpus completo en la unidad real (con GPU, embeber 7.908 chunks debería tardar segundos). Ver también la sección de snapshot/restore de Qdrant pendiente en [PROJECT_PLAN.md](PROJECT_PLAN.md) para no tener que re-ingestar en la ventana de 4h.
+The full dataset (952 pages / 7,908 chunks) is available at the link above if it makes sense to use the full corpus on the real unit (with a GPU, embedding 7,908 chunks should take seconds). See also the pending Qdrant snapshot/restore section in [PROJECT_PLAN.md](PROJECT_PLAN.md), to avoid having to re-ingest within the 4h window.
