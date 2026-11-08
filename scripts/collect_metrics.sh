@@ -9,7 +9,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_DIR="${PROJECT_ROOT}/results"
 SUMMARY_FILE="${RESULTS_DIR}/summary.csv"
 
-LATEST_RUN="$(ls -td "${RESULTS_DIR}"/*/ 2>/dev/null | head -1)"
+LATEST_RUN="$(ls -td "${RESULTS_DIR}"/*/*/ 2>/dev/null | head -1)"
 if [[ -z "${LATEST_RUN}" ]]; then
   echo "Error: no benchmark run found under ${RESULTS_DIR}." >&2
   exit 1

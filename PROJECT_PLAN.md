@@ -123,7 +123,7 @@ brain-demo/
 
 - `docker-compose.yml` + `scripts/start_chatbot_ui.sh` bring up **Open WebUI** connected to Ollama (`http://localhost:3000`, no login). This is the visual layer for recording.
 - `benchmarks/chatbot/simulate_users.py` + `scripts/run_chatbot_test.sh` generate the actual load: 4 simultaneous "users" (general, code, summarization, general knowledge — the 4 personas Nicolas asked for), hitting **Ollama directly** (not through Open WebUI) to get real instrumented metrics. Streams tokens live to the terminal, prefixed by user — good for recording, though it's a bit "noisy" from the per-token prefix; if a cleaner look is wanted for the video, it could be adjusted to prefix only at the start of each message.
-- Saves a JSON per run at `results/<timestamp>_chatbot_<model>.json` with TTFT, total latency, and approximate tokens/sec per user.
+- Saves a JSON per run at `results/<model>/<timestamp>_chatbot.json` with TTFT, total latency, and approximate tokens/sec per user.
 - **Important finding**: with 4 simultaneous users, TTFT spiked (from ~6s to ~48s depending on the user) because **Ollama serializes generations against the same model by default** instead of truly parallelizing them — what's measured today on Mac is more of a queue than real compute-level concurrency.
 
 **`OLLAMA_NUM_PARALLEL` tested and confirmed** (`scripts/start_inference_ollama.sh` automatically restarts Ollama with this variable, since it only takes effect at process start):

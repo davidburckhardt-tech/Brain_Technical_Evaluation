@@ -25,8 +25,10 @@ fi
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SAFE_MODEL_NAME="${MODEL_NAME//[:\/]/_}"
-OUTPUT_FILE="${PROJECT_ROOT}/results/${TIMESTAMP}_chatbot_${SAFE_MODEL_NAME}.json"
-MONITOR_OUTPUT="${PROJECT_ROOT}/results/${TIMESTAMP}_chatbot_${SAFE_MODEL_NAME}_resources.csv"
+RUN_DIR="${PROJECT_ROOT}/results/${SAFE_MODEL_NAME}"
+mkdir -p "${RUN_DIR}"
+OUTPUT_FILE="${RUN_DIR}/${TIMESTAMP}_chatbot.json"
+MONITOR_OUTPUT="${RUN_DIR}/${TIMESTAMP}_chatbot_resources.csv"
 
 # Resource monitoring: auto-detects GPU (nvidia-smi) vs CPU (psutil), runs in
 # the background for the duration of the test.

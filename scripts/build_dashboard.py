@@ -17,15 +17,15 @@ DASHBOARD_DIR = PROJECT_ROOT / "dashboard"
 # Historical chatbot runs from before --ollama-num-parallel was added to
 # simulate_users.py. Known from the order they were run in this session.
 KNOWN_NUM_PARALLEL_BY_FILENAME = {
-    "20261107_204825_chatbot_llama3_8b.json": "1",
-    "20261107_205940_chatbot_llama3_8b.json": "2",
-    "20261107_210047_chatbot_llama3_8b.json": "3",
+    "20261107_204825_chatbot.json": "1",
+    "20261107_205940_chatbot.json": "2",
+    "20261107_210047_chatbot.json": "3",
 }
 
 
 def collect_test1_runs() -> list[dict]:
     runs = []
-    for benchmarks_json in sorted(RESULTS_DIR.glob("*/benchmarks.json")):
+    for benchmarks_json in sorted(RESULTS_DIR.glob("*/*/benchmarks.json")):
         with open(benchmarks_json, "r", encoding="utf-8") as f:
             data = json.load(f)
         for benchmark in data.get("benchmarks", []):
@@ -62,7 +62,7 @@ def collect_test1_runs() -> list[dict]:
 
 def collect_test2_runs() -> list[dict]:
     runs = []
-    for path in sorted(RESULTS_DIR.glob("*_chatbot_*.json")):
+    for path in sorted(RESULTS_DIR.glob("*/*_chatbot*.json")):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         num_parallel = data.get("ollama_num_parallel") or KNOWN_NUM_PARALLEL_BY_FILENAME.get(path.name)
@@ -90,7 +90,7 @@ def collect_test2_runs() -> list[dict]:
 
 def collect_test3_runs() -> list[dict]:
     runs = []
-    for path in sorted(RESULTS_DIR.glob("*_rag_q*_c*.json")):
+    for path in sorted(RESULTS_DIR.glob("*/*_rag_q*_c*.json")):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         queries = data.get("queries", [])

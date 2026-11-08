@@ -33,8 +33,11 @@ if [[ ! -f "${VENV_DIR}/bin/python3" ]]; then
 fi
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-OUTPUT_FILE="${PROJECT_ROOT}/results/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}.json"
-MONITOR_OUTPUT="${PROJECT_ROOT}/results/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_resources.csv"
+SAFE_MODEL_NAME="${MODEL_NAME//[:\/]/_}"
+RUN_DIR="${PROJECT_ROOT}/results/${SAFE_MODEL_NAME}"
+mkdir -p "${RUN_DIR}"
+OUTPUT_FILE="${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}.json"
+MONITOR_OUTPUT="${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_resources.csv"
 
 # Resource monitoring: auto-detects GPU (nvidia-smi) vs CPU (psutil), runs in
 # the background for the duration of the test.

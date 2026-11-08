@@ -37,7 +37,7 @@ fi
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SAFE_MODEL_NAME="${MODEL_NAME//[:\/]/_}"
-RUN_DIR="${PROJECT_ROOT}/results/${TIMESTAMP}_${SAFE_MODEL_NAME}_c${BENCHMARK_CONCURRENCY}"
+RUN_DIR="${PROJECT_ROOT}/results/${SAFE_MODEL_NAME}/${TIMESTAMP}_c${BENCHMARK_CONCURRENCY}"
 mkdir -p "${RUN_DIR}"
 
 echo "==> Running GuideLLM against ${BENCHMARK_TARGET} (model: ${MODEL_NAME}, tokenizer: ${TOKENIZER_MODEL})"

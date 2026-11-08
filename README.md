@@ -87,7 +87,7 @@ At this point Test 1 and Test 2 can run. Test 3 needs its own one-time setup —
 Synthetic load (~550 input tokens / ~150 output tokens per request) via GuideLLM, against Ollama's OpenAI-compatible API directly.
 
 ```bash
-./scripts/run_benchmark.sh     # results -> results/<timestamp>_<model>_c<N>/benchmarks.json
+./scripts/run_benchmark.sh     # results -> results/<model>/<timestamp>_c<N>/benchmarks.json
 ./scripts/collect_metrics.sh   # appends the key metrics to results/summary.csv
 ```
 
@@ -101,7 +101,7 @@ Fires 4 simulated users (general question, code generation, summarization, gener
 
 ```bash
 ./scripts/start_chatbot_ui.sh   # starts Open WebUI (Docker) at http://localhost:3000, connected to Ollama
-./scripts/run_chatbot_test.sh   # the actual measured run -> results/<timestamp>_chatbot_<model>.json
+./scripts/run_chatbot_test.sh   # the actual measured run -> results/<model>/<timestamp>_chatbot.json
 ```
 
 `OLLAMA_NUM_PARALLEL` in `.env` controls how many of those 4 users Ollama actually processes at once (vs. queueing). **Changing it requires restarting Ollama** — re-run `./scripts/start_inference_ollama.sh` after changing it, then `./scripts/run_chatbot_test.sh` again. See [RESULTS.md](RESULTS.md) for what each level (1/2/3) looked like on Mac.
@@ -127,7 +127,7 @@ Pipeline: question → embed (`nomic-embed-text`) → retrieve top-k chunks from
 ./scripts/run_rag_test.sh 4 2    # 4 queries, 2 concurrent at a time
 ```
 
-Results: `results/<timestamp>_rag_q<N>_c<C>.json` — per-query retrieval time, generation TTFT/duration, and whether the known-correct chunk (from the QA dataset) was retrieved in the top-k (a quality signal that comes along for free, not the focus of these runs).
+Results: `results/<model>/<timestamp>_rag_q<N>_c<C>.json` — per-query retrieval time, generation TTFT/duration, and whether the known-correct chunk (from the QA dataset) was retrieved in the top-k (a quality signal that comes along for free, not the focus of these runs).
 
 **First query of a session will look slow** — the embedding model's first call pays a cold-load cost (~22s measured on Mac), separate from actual retrieval. See [§10](#10-known-quirks--troubleshooting).
 
@@ -273,8 +273,10 @@ Copy `.env.example` to `.env` and adjust. All variables:
 │   └── rag/{ingest,query}.py        # Test 3 implementation
 ├── scripts/                   # see table below
 ├── dashboard/index.html       # generated, see §6
-└── results/                   # benchmark output, one subfolder/file per run (gitignored)
+└── results/                   # one subfolder per model, e.g. results/llama3_8b/<timestamp>_...
 ```
+
+Results are organized **by model** (`results/<safe-model-name>/...`, model names sanitized the same way as `results/<model>/<timestamp>_c<N>/` for Test 1, so multiple models never collide and stay easy to compare). Nothing is ever overwritten — every run gets its own timestamp — and the data itself is tracked in git (it's small JSON/CSV, and it's the evidence behind `RESULTS.md`/the dashboard); only server logs/pids are gitignored.
 
 | Script | Test | Purpose |
 |---|---|---|

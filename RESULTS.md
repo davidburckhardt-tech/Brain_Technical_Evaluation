@@ -17,7 +17,7 @@ Benchmark: GuideLLM, carga sintética (~550 tokens de entrada, ~150 de salida po
 
 **Lectura (llama3:8b)**: al pasar de 1 a 2 streams concurrentes, el TTFT se multiplicó por ~10x (de ~900ms a ~9.8s) y el TPOT casi se duplicó (32.7 → 80.1 ms/token). El throughput agregado (output tokens/seg) bajó levemente en vez de subir. Esto es consistente con un hardware sin margen de cómputo libre: la Mac no tiene capacidad ociosa para absorber una segunda request en paralelo, así que la concurrencia solo reparte el mismo cómputo entre más requests, empeorando la latencia de cada una.
 
-Datos crudos: `results/20261107_184204_llama3_8b/` y `results/20261107_203726_llama3_8b_c2/`.
+Datos crudos: `results/llama3_8b/20261107_184204_c1/` y `results/llama3_8b/20261107_203726_c2/`.
 
 ### Segundo modelo: `qwen3:4b-q4_K_M`
 
@@ -27,7 +27,7 @@ Datos crudos: `results/20261107_184204_llama3_8b/` y `results/20261107_203726_ll
 
 **Lectura**: Qwen3 4B (modelo más chico, 4B vs 8B parámetros, cuantización Q4_K_M) tuvo mayor output tokens/seg que Llama 3 8B en la misma condición de concurrencia (39.0 vs 23.7 tok/s) — esperable por ser un modelo más chico — pero también mayor latencia media por request (64.5s vs 15.2s) y solo completó 9 de 10 requests en el tiempo asignado. No es una comparación perfectamente controlada (distinta arquitectura, cuantización, tamaño); sirve como primer punto de referencia multi-modelo, no como conclusión definitiva — eso requiere la lista completa de modelos en la unidad real.
 
-Datos crudos: `results/20261107_222531_qwen3_4b-q4_K_M_c2/`.
+Datos crudos: `results/qwen3_4b-q4_K_M/20261107_222531_c2/`.
 
 ---
 
@@ -60,7 +60,7 @@ Script: `benchmarks/chatbot/simulate_users.py`, 4 usuarios simultáneos con dist
 - El tiempo total para los 4 usuarios bajó de 53.9s → 38.7s → 33.3s a medida que subió `NUM_PARALLEL`.
 - El throughput agregado (tokens/seg sumando usuarios) **no mejoró significativamente** entre niveles — lo que mejora es que más usuarios dejan de hacer cola completa, no que el hardware rinda más. Es la misma conclusión que el Test 1: en esta Mac el límite es el cómputo, no el scheduling.
 
-Datos crudos: `results/20261107_204825_chatbot_llama3_8b.json` (parallel=1), `results/20261107_205940_chatbot_llama3_8b.json` (parallel=2), `results/20261107_210047_chatbot_llama3_8b.json` (parallel=3).
+Datos crudos: `results/llama3_8b/20261107_204825_chatbot.json` (parallel=1), `results/llama3_8b/20261107_205940_chatbot.json` (parallel=2), `results/llama3_8b/20261107_210047_chatbot.json` (parallel=3).
 
 ### Segundo modelo: `qwen3:4b-q4_K_M` (NUM_PARALLEL=3)
 
@@ -72,7 +72,7 @@ Datos crudos: `results/20261107_204825_chatbot_llama3_8b.json` (parallel=1), `re
 | knowledge-1 | conocimiento | 69.60s | 101.96s | 583 | 5.7 |
 | **Total (4 usuarios)** | | | **102.04s** | | |
 
-Error rate: 0%. Datos crudos: `results/20261107_223208_chatbot_qwen3_4b-q4_K_M.json`.
+Error rate: 0%. Datos crudos: `results/qwen3_4b-q4_K_M/20261107_223208_chatbot.json`.
 
 **Lectura**: a igual `NUM_PARALLEL=3`, Qwen3 4B tardó 3x más que Llama 3 8B en completar a los 4 usuarios (102s vs 33.3s) y sus respuestas fueron más largas en promedio — el tamaño de la respuesta generada pesa tanto como el tamaño del modelo en este tipo de comparación, otra razón para no sacar conclusiones de "mejor/peor modelo" todavía con una sola corrida cada uno.
 
@@ -98,7 +98,7 @@ Pipeline: pregunta → embeber (`nomic-embed-text`) → recuperar top-3 chunks d
 - Con concurrencia 2 (dentro del límite de `OLLAMA_NUM_PARALLEL=3` configurado en el Test 2), no se vio la degradación de cola que sí aparecía en el Test 2 sin slots paralelos — señal de que dejar `OLLAMA_NUM_PARALLEL` en un valor >1 beneficia también a este test.
 - El "hit rate" (si el chunk correcto apareció entre los top-3 recuperados) varió entre 67-100% según qué preguntas entraron en la muestra — no es una métrica de carga, es una señal de calidad de retrieval que quedó registrada de paso porque el dataset trae el chunk correcto conocido (`source_chunk`), pero no es el foco de esta ronda (se pidieron métricas de performance, no de calidad).
 
-Datos crudos: `results/*_rag_q*_c*.json` (6 archivos, uno por configuración).
+Datos crudos: `results/llama3_8b/*_rag_q*_c*.json` (6 archivos, uno por configuración).
 
 Nota: estas 6 corridas son de antes de cambiar la medición de tokens a conteo exacto (ver más abajo) — muestran `output_tokens_approx` (aproximado por palabras), no tokens exactos.
 
@@ -111,7 +111,7 @@ Con conteo de tokens exacto (`prompt_eval_count`/`eval_count` de la API nativa d
 | 1 usuario | 1 | 1 | 12.67s | 0.942s | 11.68s | 532 / 429 | 0% | 100% |
 | 4 concurrentes (2 hilos) | 4 | 2 | 37.12s | 0.165s | 14.69s | 508 / 357 | 0% | 75% |
 
-Datos crudos: `results/20261107_223400_rag_q1_c1.json`, `results/20261107_223413_rag_q4_c2.json`.
+Datos crudos: `results/qwen3_4b-q4_K_M/20261107_223400_rag_q1_c1.json`, `results/qwen3_4b-q4_K_M/20261107_223413_rag_q4_c2.json`.
 
 **Lectura**: mismo patrón que en Test 1/2 — Qwen3 4B generó bastante más tokens de salida por respuesta (357-429 vs. lo que generó Llama en estas mismas preguntas) y tardó más en generación, mientras que el retrieval (independiente del LLM, mismo embedding/Qdrant) se mantuvo igual de rápido en ambos modelos — confirma que separar retrieval de generación fue la decisión correcta: el retrieval no varía por modelo, la generación sí.
 
