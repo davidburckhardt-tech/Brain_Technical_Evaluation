@@ -70,6 +70,7 @@ def collect_test2_runs() -> list[dict]:
         runs.append({
             "run_file": path.name,
             "model": data.get("model", "unknown"),
+            "target": data.get("target"),
             "ollama_num_parallel": num_parallel,
             "concurrent_users": data.get("concurrent_users"),
             "overall_duration_s": data.get("overall_duration_s"),
@@ -256,15 +257,22 @@ function renderTest1(runs) {
 
 function renderTest2(runs) {
   if (!runs.length) return '<p class="empty">No Test 2 data for this model.</p>';
-  let html = '<div class="test-note">4 simulated users (general, code, summary, knowledge) against Ollama directly.</div>';
-  html += barChart(runs, r => `NUM_PARALLEL=${r.ollama_num_parallel ?? '?'}`, r => r.overall_duration_s, ' s total');
-  html += '<table><thead><tr><th>OLLAMA_NUM_PARALLEL</th><th>Users</th><th>Total duration (s)</th><th>Error rate</th><th>TTFT per user (s)</th></tr></thead><tbody>';
+  let html = '<div class="test-note">4 simulated users (general, code, summary, knowledge) against the inference server directly (Ollama or vLLM, whichever "Target" shows below).</div>';
+  html += barChart(runs, r => parallelismLabel(r), r => r.overall_duration_s, ' s total');
+  html += '<table><thead><tr><th>Target</th><th>Parallelism setting</th><th>Users</th><th>Total duration (s)</th><th>Error rate</th><th>TTFT per user (s)</th></tr></thead><tbody>';
   for (const r of runs) {
     const ttfts = r.users.map(u => `${u.user_id}: ${fmt(u.ttft_s)}`).join(', ');
-    html += `<tr><td>${r.ollama_num_parallel ?? '-'}</td><td>${r.concurrent_users ?? '-'}</td>
+    html += `<tr><td>${r.target ?? '-'}</td><td>${parallelismLabel(r)}</td><td>${r.concurrent_users ?? '-'}</td>
       <td>${fmt(r.overall_duration_s)}</td><td>${pct(r.error_rate)}</td><td>${ttfts}</td></tr>`;
   }
   return html + '</tbody></table>';
+}
+
+function parallelismLabel(r) {
+  // OLLAMA_NUM_PARALLEL is Ollama-specific; vLLM has no equivalent single knob
+  // (it batches continuously on its own), so runs against vLLM simply won't
+  // have this value set - show that plainly instead of implying it applies.
+  return r.ollama_num_parallel ? `OLLAMA_NUM_PARALLEL=${r.ollama_num_parallel}` : 'n/a (not Ollama, or unset)';
 }
 
 function renderTest3(runs) {
