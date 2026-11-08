@@ -154,6 +154,16 @@ Test 2 and Test 3 catch failures per-request instead of letting one failure cras
 
 Self-contained HTML (data embedded inline, no server, nothing sent anywhere — these are potentially sensitive benchmark numbers) with one tab per model tested, each showing all 3 tests' results as tables + simple bar charts. Re-run any time after new results land; open `dashboard/index.html` directly in a browser, no server needed.
 
+### Viewing it from another device (e.g. the real Brain unit, terminal-only)
+
+```bash
+./scripts/share_dashboard.sh   # rebuilds the dashboard, serves it locally, and tunnels it with ngrok
+```
+
+Prints a public `https://...ngrok-free.dev` URL that can be opened from a phone, tablet, or any other device on a different network — useful for recording the results on screen when the machine running the tests has no GUI/browser of its own (the terminal-only scenario on the real hardware). Needs `ngrok` installed and authenticated once (`brew install ngrok`, then `ngrok config add-authtoken <token>` from a free [ngrok.com](https://ngrok.com) account). Ctrl+C stops both the tunnel and the local server; the URL changes every time it's run (ngrok's free tier doesn't keep a fixed subdomain) — **anyone with that URL can view the dashboard while it's running**, since this is a convenience tunnel with no auth of its own, so don't leave it running longer than needed and don't post the link publicly. Override the local port with `DASHBOARD_PORT` in `.env` (default `8080`).
+
+The same `ngrok http <port>` approach works for Open WebUI (`ngrok http 3000`) if the chatbot UI itself also needs to be viewed remotely for recording.
+
 ## 7. Moving to the real Brain hardware
 
 The whole pipeline (GuideLLM, the chatbot simulator, and RAG's `ingest.py`/`query.py`) talks only the OpenAI-compatible API (`/v1/chat/completions`, `/v1/embeddings`) — no Ollama-native endpoint is used anywhere in the code anymore. That means switching from Ollama to vLLM is, in principle, just pointing the same scripts at a different URL. This section gives the actual commands for that; §7.3 covers what's genuinely different about vLLM (not just the URL) and what's still unvalidated.
@@ -276,6 +286,7 @@ Copy `.env.example` to `.env` and adjust. All variables:
 | `start_chatbot_ui.sh` / `run_chatbot_test.sh` | 2 | Open WebUI / the actual measured concurrent chat run |
 | `start_vector_db.sh` / `load_rag_documents.sh` / `run_rag_test.sh` | 3 | Qdrant / corpus ingestion / retrieval+generation run |
 | `build_dashboard.py` | — | rebuild `dashboard/index.html` |
+| `share_dashboard.sh` | — | rebuild + serve the dashboard over a temporary public ngrok tunnel |
 | `summarize_benchmark.py` | 1 | called by `collect_metrics.sh`, not run directly |
 | `monitor_resources.py` | 1, 2, 3 | auto-started/stopped by each `run_*.sh`, not run directly |
 
