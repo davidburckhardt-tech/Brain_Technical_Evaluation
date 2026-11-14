@@ -5,12 +5,19 @@ benchmark test, started and stopped by the run_*.sh wrappers.
 
 Auto-detects what to monitor:
   - If `nvidia-smi` is on PATH, samples GPU utilization + VRAM per GPU
-    (works for the real Brain hardware, NVIDIA GPUs).
-  - Otherwise, falls back to CPU utilization + system memory via psutil
-    (what this Mac uses today - no GPU monitoring API available without
-    sudo-gated tools like powermetrics, which isn't scriptable here).
+    (works for the real Brain hardware, NVIDIA GPUs) AND host CPU/RAM via
+    psutil in the same tick, if psutil is installed - a GPU box's host CPU
+    can itself be a bottleneck (e.g. Ollama's embedding model falling back
+    to CPU - see RESULTS_0.5_NVIDIA.md), so it needs to be visible in the
+    same timeline as GPU usage, not instead of it.
+  - If psutil isn't installed alongside nvidia-smi, GPU-only rows are still
+    written (CPU/RAM rows just won't appear) rather than failing the run.
+  - With no `nvidia-smi` on PATH at all, falls back to CPU utilization +
+    system memory via psutil only (what this Mac uses today - no GPU
+    monitoring API available without sudo-gated tools like powermetrics,
+    which isn't scriptable here).
 
-One CSV schema either way, so downstream tooling doesn't need to care which
+One CSV schema throughout, so downstream tooling doesn't need to care which
 mode produced a given file: timestamp_iso, elapsed_s, mode, device, util_percent,
 memory_used_mb, memory_total_mb.
 """
@@ -95,15 +102,16 @@ def main():
 
     has_gpu = shutil.which("nvidia-smi") is not None
     psutil_module = None
-    if not has_gpu:
-        try:
-            import psutil as psutil_module
-        except ImportError:
+    try:
+        import psutil as psutil_module
+    except ImportError:
+        if not has_gpu:
             print("Error: no nvidia-smi and psutil is not installed. Run scripts/setup.sh.", file=sys.stderr)
             sys.exit(1)
+        print("Warning: psutil not installed - host CPU/RAM rows will be skipped, GPU rows only.", file=sys.stderr)
 
-    mode = "gpu" if has_gpu else "cpu"
-    print(f"==> Monitoring {mode} every {args.interval}s -> {args.output}")
+    mode_label = "gpu+cpu" if (has_gpu and psutil_module) else ("gpu" if has_gpu else "cpu")
+    print(f"==> Monitoring {mode_label} every {args.interval}s -> {args.output}")
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,11 +125,14 @@ def main():
         while not _stop:
             now = datetime.now(timezone.utc).isoformat()
             elapsed = time.monotonic() - start_time
+            rows = []
             try:
-                rows = sample_gpu() if has_gpu else sample_cpu(psutil_module)
+                if has_gpu:
+                    rows.extend(sample_gpu())
+                if psutil_module is not None:
+                    rows.extend(sample_cpu(psutil_module))
             except Exception as exc:
                 print(f"Warning: sample failed: {exc}", file=sys.stderr)
-                rows = []
 
             for row in rows:
                 writer.writerow({"timestamp_iso": now, "elapsed_s": round(elapsed, 3), **row})

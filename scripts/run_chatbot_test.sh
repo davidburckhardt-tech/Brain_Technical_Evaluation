@@ -20,6 +20,10 @@ MODEL_NAME="${MODEL_NAME:-llama3:8b}"
 # Optional: point at a bigger prompts file (e.g. datasets/prompts_heavy.jsonl)
 # to simulate more concurrent users than the default 4.
 PROMPTS_FILE="${PROMPTS_FILE:-}"
+# Optional: turns per simulated conversation (default 1 = single-shot,
+# original behavior) and the model's context window for utilization %.
+CHATBOT_TURNS="${CHATBOT_TURNS:-1}"
+CHATBOT_MAX_CONTEXT_TOKENS="${CHATBOT_MAX_CONTEXT_TOKENS:-}"
 
 if [[ ! -f "${VENV_DIR}/bin/python3" ]]; then
   echo "Error: virtual environment not found. Run scripts/setup.sh first." >&2
@@ -38,11 +42,20 @@ MONITOR_OUTPUT="${RUN_DIR}/${TIMESTAMP}_chatbot_resources.csv"
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_resources.py" \
   --output "${MONITOR_OUTPUT}" --interval 1 &
 MONITOR_PID=$!
-trap 'kill -TERM "${MONITOR_PID}" 2>/dev/null; wait "${MONITOR_PID}" 2>/dev/null' EXIT
+
+# vLLM-specific queue/KV-cache metrics - harmless no-op (blank rows) if
+# OLLAMA_HOST_URL isn't actually a vLLM server.
+"${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_vllm_metrics.py" \
+  --vllm-url "${OLLAMA_HOST_URL}" --output "${RUN_DIR}/${TIMESTAMP}_chatbot_vllm_metrics.csv" --interval 1 &
+VLLM_METRICS_PID=$!
+
+trap 'kill -TERM "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null; wait "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null' EXIT
 
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/benchmarks/chatbot/simulate_users.py" \
   --target "${OLLAMA_HOST_URL}" \
   --model "${MODEL_NAME}" \
   --output "${OUTPUT_FILE}" \
   --ollama-num-parallel "${OLLAMA_NUM_PARALLEL:-}" \
-  ${PROMPTS_FILE:+--prompts-file "${PROMPTS_FILE}"}
+  --turns "${CHATBOT_TURNS}" \
+  ${PROMPTS_FILE:+--prompts-file "${PROMPTS_FILE}"} \
+  ${CHATBOT_MAX_CONTEXT_TOKENS:+--max-context-tokens "${CHATBOT_MAX_CONTEXT_TOKENS}"}

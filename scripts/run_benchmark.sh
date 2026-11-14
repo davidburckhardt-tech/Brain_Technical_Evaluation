@@ -62,7 +62,14 @@ echo "==> Results will be stored in ${RUN_DIR}"
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_resources.py" \
   --output "${RUN_DIR}/resource_usage.csv" --interval 1 &
 MONITOR_PID=$!
-trap 'kill -TERM "${MONITOR_PID}" 2>/dev/null; wait "${MONITOR_PID}" 2>/dev/null' EXIT
+
+# vLLM-specific queue/KV-cache metrics - harmless no-op (blank rows) if
+# BENCHMARK_TARGET isn't actually a vLLM server (e.g. Ollama in Phase 0).
+"${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_vllm_metrics.py" \
+  --vllm-url "${BENCHMARK_TARGET}" --output "${RUN_DIR}/vllm_metrics.csv" --interval 1 &
+VLLM_METRICS_PID=$!
+
+trap 'kill -TERM "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null; wait "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null' EXIT
 
 (
   cd "${RUN_DIR}"
@@ -77,4 +84,7 @@ trap 'kill -TERM "${MONITOR_PID}" 2>/dev/null; wait "${MONITOR_PID}" 2>/dev/null
     --disable-console-interactive
 )
 
-echo "==> Benchmark complete. Raw output (benchmarks.json / benchmarks.csv / resource_usage.csv) saved in ${RUN_DIR}"
+"${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/extract_benchmark_requests.py" \
+  --input "${RUN_DIR}/benchmarks.json" --output "${RUN_DIR}/requests_detail.csv"
+
+echo "==> Benchmark complete. Raw output (benchmarks.json / benchmarks.csv / requests_detail.csv / resource_usage.csv) saved in ${RUN_DIR}"

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Scans results/ and builds dashboard/index.html - a small, self-contained,
-offline HTML page (data embedded inline, no server, no external libraries)
-grouping every run by model, so it stays useful once more models (Mistral,
-GLM, Qwen, ...) are tested.
+"""Scans results/ and builds dashboard/index.html - a self-contained HTML
+page (data embedded inline; Chart.js loaded from CDN for the line /
+stacked-bar / histogram visualizations that a hand-rolled CSS bar chart
+can't do) grouping every run by model, so it stays useful once more models
+are tested.
 
 Re-run this any time new results land under results/.
 """
 
+import csv
 import json
 from pathlib import Path
 
@@ -23,9 +25,52 @@ KNOWN_NUM_PARALLEL_BY_FILENAME = {
 }
 
 
+def read_csv_rows(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _float(v):
+    if v in (None, "", "None"):
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+def read_resource_usage(path: Path) -> list[dict]:
+    rows = []
+    for row in read_csv_rows(path):
+        rows.append({
+            "elapsed_s": _float(row.get("elapsed_s")),
+            "mode": row.get("mode"),
+            "device": row.get("device"),
+            "util_percent": _float(row.get("util_percent")),
+            "memory_used_mb": _float(row.get("memory_used_mb")),
+            "memory_total_mb": _float(row.get("memory_total_mb")),
+        })
+    return rows
+
+
+def read_vllm_metrics(path: Path) -> list[dict]:
+    rows = []
+    for row in read_csv_rows(path):
+        rows.append({
+            "elapsed_s": _float(row.get("elapsed_s")),
+            "num_requests_running": _float(row.get("num_requests_running")),
+            "num_requests_waiting": _float(row.get("num_requests_waiting")),
+            "gpu_cache_usage_perc": _float(row.get("gpu_cache_usage_perc")),
+        })
+    return rows
+
+
 def collect_test1_runs() -> list[dict]:
     runs = []
     for benchmarks_json in sorted(RESULTS_DIR.glob("*/*/benchmarks.json")):
+        run_dir = benchmarks_json.parent
         with open(benchmarks_json, "r", encoding="utf-8") as f:
             data = json.load(f)
         for benchmark in data.get("benchmarks", []):
@@ -40,51 +85,98 @@ def collect_test1_runs() -> list[dict]:
                 except (KeyError, TypeError):
                     return None
 
+            concurrency = strategy.get("max_concurrency") or strategy.get("streams") or strategy.get("worker_count")
+
+            requests_detail = []
+            for row in read_csv_rows(run_dir / "requests_detail.csv"):
+                requests_detail.append({
+                    "request_number": int(row["request_number"]) if row.get("request_number") else None,
+                    "status": row.get("status"),
+                    "latency_s": _float(row.get("request_latency_s")),
+                    "ttft_ms": _float(row.get("ttft_ms")),
+                })
+
             runs.append({
-                "run_dir": benchmarks_json.parent.name,
+                "run_dir": run_dir.name,
                 "model": model,
                 "strategy": strategy.get("type_"),
-                "concurrency": strategy.get("max_concurrency") or strategy.get("worker_count"),
+                "concurrency": concurrency,
                 "duration_s": benchmark.get("duration"),
                 "ttft_ms_mean": stat("time_to_first_token_ms"),
                 "tpot_ms_mean": stat("time_per_output_token_ms"),
                 "itl_ms_mean": stat("inter_token_latency_ms"),
                 "request_latency_s_mean": stat("request_latency"),
+                "input_tokens_per_second_mean": stat("prompt_tokens_per_second"),
                 "output_tokens_per_second_mean": stat("output_tokens_per_second"),
+                "total_tokens_per_second_mean": stat("tokens_per_second"),
                 "error_rate": (
                     metrics.get("request_totals", {}).get("errored", 0) / metrics["request_totals"]["total"]
                     if metrics.get("request_totals", {}).get("total")
                     else None
                 ),
+                "requests_detail": requests_detail,
+                "resource_usage": read_resource_usage(run_dir / "resource_usage.csv"),
+                "vllm_metrics": read_vllm_metrics(run_dir / "vllm_metrics.csv"),
             })
     return runs
 
 
+def normalize_turns(user: dict) -> list[dict]:
+    """Supports both the current multi-turn result format (user["turns"]
+    present) and legacy single-shot result files recorded before --turns
+    existed, by synthesizing a single turn-1 record from the old top-level
+    fields - so old and new chatbot runs can share one dashboard code path."""
+    if "turns" in user:
+        return user["turns"]
+    return [{
+        "turn_id": 1,
+        "error": user.get("error"),
+        "ttft_s": user.get("ttft_s"),
+        "generation_duration_s": None,
+        "total_latency_s": user.get("total_latency_s"),
+        "context_tokens": None,
+        "output_tokens": user.get("output_tokens_approx"),
+        "output_tokens_per_second": user.get("output_tokens_per_second_approx"),
+        "user_input_tokens_approx": None,
+        "cumulative_input_tokens_approx": None,
+        "cumulative_output_tokens": user.get("output_tokens_approx"),
+        "context_window_utilization": None,
+    }]
+
+
 def collect_test2_runs() -> list[dict]:
     runs = []
-    for path in sorted(RESULTS_DIR.glob("*/*_chatbot*.json")):
+    for path in sorted(RESULTS_DIR.glob("*/*_chatbot.json")):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         num_parallel = data.get("ollama_num_parallel") or KNOWN_NUM_PARALLEL_BY_FILENAME.get(path.name)
         users = data.get("users", [])
+
+        normalized_users = [
+            {
+                "user_id": u["user_id"],
+                "category": u.get("category"),
+                "ttft_s": u.get("ttft_s"),
+                "total_latency_s": u.get("total_latency_s"),
+                "output_tokens_per_second_approx": u.get("output_tokens_per_second_approx"),
+                "turns": normalize_turns(u),
+            }
+            for u in users
+        ]
+
+        resource_csv = path.with_name(path.stem + "_resources.csv")
         runs.append({
             "run_file": path.name,
             "model": data.get("model", "unknown"),
             "target": data.get("target"),
             "ollama_num_parallel": num_parallel,
             "concurrent_users": data.get("concurrent_users"),
+            "turns_per_conversation": data.get("turns_per_conversation", 1),
+            "max_context_tokens": data.get("max_context_tokens"),
             "overall_duration_s": data.get("overall_duration_s"),
             "error_rate": data.get("error_rate"),
-            "users": [
-                {
-                    "user_id": u["user_id"],
-                    "category": u["category"],
-                    "ttft_s": u["ttft_s"],
-                    "total_latency_s": u["total_latency_s"],
-                    "output_tokens_per_second_approx": u["output_tokens_per_second_approx"],
-                }
-                for u in users
-            ],
+            "users": normalized_users,
+            "resource_usage": read_resource_usage(resource_csv),
         })
     return runs
 
@@ -96,29 +188,46 @@ def collect_test3_runs() -> list[dict]:
             data = json.load(f)
         queries = data.get("queries", [])
         succeeded = [q for q in queries if not q.get("error")]
-        avg_retrieval = sum(q["retrieval_duration_s"] for q in succeeded) / len(succeeded) if succeeded else None
-        avg_generation = sum(q["generation_duration_s"] for q in succeeded) / len(succeeded) if succeeded else None
-        avg_input_tokens = (
-            sum(q.get("input_tokens") or 0 for q in succeeded) / len(succeeded) if succeeded else None
-        )
-        avg_output_tokens = (
-            sum(q.get("output_tokens") or 0 for q in succeeded) / len(succeeded) if succeeded else None
-        )
+
+        def avg(key):
+            vals = [q.get(key) for q in succeeded if q.get(key) is not None]
+            return sum(vals) / len(vals) if vals else None
+
         hit_rate = (
-            sum(1 for q in succeeded if q["expected_chunk_found_in_top_k"]) / len(succeeded) if succeeded else None
+            sum(1 for q in succeeded if q.get("expected_chunk_found_in_top_k")) / len(succeeded)
+            if succeeded else None
         )
+
+        per_request = [
+            {
+                "index": q.get("index"),
+                "system_prompt_tokens_approx": q.get("system_prompt_tokens_approx"),
+                "user_query_tokens_approx": q.get("user_query_tokens_approx"),
+                "context_tokens_approx": q.get("context_tokens_approx"),
+                "output_tokens": q.get("output_tokens"),
+            }
+            for q in succeeded
+        ]
+
+        resource_csv = path.with_name(path.stem + "_resources.csv")
         runs.append({
             "run_file": path.name,
             "model": data.get("model", "unknown"),
             "num_queries": data.get("num_queries"),
             "concurrency": data.get("concurrency"),
+            "top_k": data.get("top_k"),
             "wall_duration_s": data.get("wall_duration_s"),
             "error_rate": data.get("error_rate"),
-            "avg_retrieval_s": avg_retrieval,
-            "avg_generation_s": avg_generation,
-            "avg_input_tokens": avg_input_tokens,
-            "avg_output_tokens": avg_output_tokens,
+            "avg_embedding_s": avg("embedding_duration_s"),
+            "avg_vector_search_s": avg("vector_search_duration_s"),
+            "avg_retrieval_s": avg("retrieval_duration_s"),
+            "avg_generation_s": avg("generation_duration_s"),
+            "avg_input_tokens": avg("input_tokens"),
+            "avg_output_tokens": avg("output_tokens"),
+            "avg_similarity_score": avg("avg_similarity_score"),
             "expected_chunk_hit_rate": hit_rate,
+            "per_request": per_request,
+            "resource_usage": read_resource_usage(resource_csv),
         })
     return runs
 
@@ -141,6 +250,7 @@ HTML_TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Brain Demo - Results</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root {
     color-scheme: light dark;
@@ -151,7 +261,11 @@ HTML_TEMPLATE = """<!doctype html>
     --muted: #666666;
     --border: #e2e2e2;
     --accent: #3b6fd6;
+    --accent2: #e8824a;
+    --accent3: #4caf7d;
+    --accent4: #9b6fd6;
     --bar-bg: #eef2fb;
+    --card-bg: #f7f8fa;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -160,7 +274,11 @@ HTML_TEMPLATE = """<!doctype html>
       --muted: #9aa0a6;
       --border: #30343a;
       --accent: #6d9bff;
+      --accent2: #ff9d6d;
+      --accent3: #6dd6a0;
+      --accent4: #c09bff;
       --bar-bg: #202636;
+      --card-bg: #1b1f26;
     }
   }
   :root[data-theme="dark"] {
@@ -169,7 +287,11 @@ HTML_TEMPLATE = """<!doctype html>
     --muted: #9aa0a6;
     --border: #30343a;
     --accent: #6d9bff;
+    --accent2: #ff9d6d;
+    --accent3: #6dd6a0;
+    --accent4: #c09bff;
     --bar-bg: #202636;
+    --card-bg: #1b1f26;
   }
   * { box-sizing: border-box; }
   body {
@@ -179,7 +301,7 @@ HTML_TEMPLATE = """<!doctype html>
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     padding: 24px 16px 48px;
   }
-  main { max-width: 980px; margin: 0 auto; }
+  main { max-width: 1040px; margin: 0 auto; }
   h1 { font-size: 20px; margin-bottom: 4px; }
   .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 13px; }
   .model-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
@@ -190,7 +312,9 @@ HTML_TEMPLATE = """<!doctype html>
   .model-tab[aria-selected="true"] { background: var(--accent); color: white; border-color: var(--accent); }
   section { margin-bottom: 36px; }
   h2 { font-size: 16px; margin: 0 0 4px; }
+  h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
   .test-note { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .chart-note { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 16px; overflow-x: auto; display: block; }
   thead, tbody { display: table; width: 100%; table-layout: fixed; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -202,13 +326,22 @@ HTML_TEMPLATE = """<!doctype html>
   .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
   .bar-value { position: absolute; left: 8px; top: 0; height: 100%; display: flex; align-items: center; font-size: 11px; color: var(--fg); white-space: nowrap; }
   .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+  .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 20px; }
+  .chart-card canvas { max-height: 320px; }
+  .run-select { margin-bottom: 10px; font-size: 12.5px; }
+  select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font-size: 12.5px; max-width: 100%;
+  }
+  .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .stat-row b { color: var(--fg); }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <h1>Brain Demo &mdash; Benchmark Results</h1>
-  <p class="subtitle">Generated by scripts/build_dashboard.py &middot; Phase 0 data (Mac, not representative of the final hardware)</p>
+  <p class="subtitle">Generated by scripts/build_dashboard.py</p>
 
   <div class="model-tabs" id="modelTabs"></div>
 
@@ -217,10 +350,35 @@ HTML_TEMPLATE = """<!doctype html>
 
 <script>
 const DATA = __DATA_JSON__;
+const CHART_COLORS = {
+  accent: getCss('--accent'), accent2: getCss('--accent2'), accent3: getCss('--accent3'),
+  accent4: getCss('--accent4'), muted: getCss('--muted'), border: getCss('--border'), fg: getCss('--fg'),
+};
+function getCss(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
 function fmt(n, digits = 2) {
   if (n === null || n === undefined) return '&ndash;';
   return Number(n).toFixed(digits);
+}
+function pct(v) {
+  return (v === null || v === undefined) ? '-' : Math.round(v * 100) + '%';
+}
+function percentile(sorted, p) {
+  if (!sorted.length) return null;
+  const idx = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
+  return sorted[idx];
+}
+
+const activeCharts = [];
+function destroyCharts() {
+  while (activeCharts.length) activeCharts.pop().destroy();
+}
+function makeChart(canvasId, config) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const chart = new Chart(el.getContext('2d'), config);
+  activeCharts.push(chart);
+  return chart;
 }
 
 function barChart(rows, labelFn, valueFn, unit) {
@@ -228,19 +386,17 @@ function barChart(rows, labelFn, valueFn, unit) {
   let html = '<div class="bars">';
   for (const row of rows) {
     const v = valueFn(row);
-    const pct = v === null || v === undefined ? 0 : Math.max((v / maxVal) * 100, 2);
+    const pctw = v === null || v === undefined ? 0 : Math.max((v / maxVal) * 100, 2);
     html += `<div class="bar-row">
       <div class="bar-label">${labelFn(row)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pctw}%"></div>
         <div class="bar-value">${fmt(v)}${unit}</div></div>
     </div>`;
   }
   return html + '</div>';
 }
 
-function pct(v) {
-  return (v === null || v === undefined) ? '-' : Math.round(v * 100) + '%';
-}
+// ---------- Test 1: Hardware / Model Serving ----------
 
 function renderTest1(runs) {
   if (!runs.length) return '<p class="empty">No Test 1 data for this model.</p>';
@@ -252,52 +408,342 @@ function renderTest1(runs) {
       <td>${fmt(r.ttft_ms_mean)}</td><td>${fmt(r.tpot_ms_mean)}</td><td>${fmt(r.request_latency_s_mean)}</td>
       <td>${fmt(r.output_tokens_per_second_mean)}</td><td>${pct(r.error_rate)}</td></tr>`;
   }
-  return html + '</tbody></table>';
+  html += '</tbody></table>';
+
+  const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
+  html += '<h3>1. Request latency vs request number</h3>';
+  if (runsWithDetail.length) {
+    html += '<div class="run-select">Run (concurrency level): <select id="t1RunSelect"></select></div>';
+    html += '<div class="chart-card"><canvas id="t1LatencyChart"></canvas></div>';
+  } else {
+    html += '<p class="empty">No per-request detail available for these runs (requires requests_detail.csv).</p>';
+  }
+
+  html += '<h3>2. Throughput vs concurrency</h3>';
+  html += '<div class="chart-card"><canvas id="t1ThroughputChart"></canvas><div class="chart-note" id="t1SaturationNote"></div></div>';
+
+  html += '<h3>3. Hardware utilization vs time</h3>';
+  const runsWithResources = runs.filter(r => r.resource_usage && r.resource_usage.length);
+  if (runsWithResources.length) {
+    html += '<div class="run-select">Run: <select id="t1HwRunSelect"></select></div>';
+    html += '<div class="chart-card"><canvas id="t1HwChart"></canvas></div>';
+  } else {
+    html += '<p class="empty">No resource_usage.csv found for these runs.</p>';
+  }
+
+  return html;
 }
+
+function wireTest1Charts(runs) {
+  const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
+  const runSelect = document.getElementById('t1RunSelect');
+  if (runSelect) {
+    runSelect.innerHTML = runsWithDetail.map((r, i) =>
+      `<option value="${i}">${r.strategy} @${r.concurrency ?? '?'} (${r.run_dir})</option>`).join('');
+    const draw = () => {
+      const r = runsWithDetail[Number(runSelect.value)];
+      const successful = r.requests_detail.filter(d => d.status === 'successful');
+      makeChart('t1LatencyChart', {
+        type: 'line',
+        data: {
+          labels: successful.map(d => d.request_number),
+          datasets: [
+            { label: 'Latency (s)', data: successful.map(d => d.latency_s), borderColor: CHART_COLORS.accent, backgroundColor: CHART_COLORS.accent, yAxisID: 'y', pointRadius: 2, tension: 0.15 },
+            { label: 'TTFT (ms)', data: successful.map(d => d.ttft_ms), borderColor: CHART_COLORS.accent2, backgroundColor: CHART_COLORS.accent2, yAxisID: 'y1', pointRadius: 2, tension: 0.15 },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Request number (submission order)' } },
+            y: { title: { display: true, text: 'Latency (s)' }, position: 'left' },
+            y1: { title: { display: true, text: 'TTFT (ms)' }, position: 'right', grid: { drawOnChartArea: false } },
+          },
+        },
+      });
+    };
+    runSelect.onchange = () => { destroyChartById('t1LatencyChart'); draw(); };
+    draw();
+  }
+
+  makeChart('t1ThroughputChart', (() => {
+    const sorted = [...runs].filter(r => r.concurrency != null).sort((a, b) => a.concurrency - b.concurrency);
+    const best = sorted.reduce((acc, r) => (r.output_tokens_per_second_mean > (acc?.output_tokens_per_second_mean ?? -1) ? r : acc), null);
+    const note = document.getElementById('t1SaturationNote');
+    if (note) {
+      note.textContent = best ? `Apparent saturation point: concurrency=${best.concurrency} (highest output tok/s observed: ${fmt(best.output_tokens_per_second_mean, 1)}). Beyond this, more concurrency stopped increasing output throughput.` : '';
+    }
+    return {
+      type: 'line',
+      data: {
+        labels: sorted.map(r => r.concurrency),
+        datasets: [
+          { label: 'Input tok/s', data: sorted.map(r => r.input_tokens_per_second_mean), borderColor: CHART_COLORS.accent, backgroundColor: CHART_COLORS.accent, tension: 0.15 },
+          { label: 'Output tok/s', data: sorted.map(r => r.output_tokens_per_second_mean), borderColor: CHART_COLORS.accent2, backgroundColor: CHART_COLORS.accent2, tension: 0.15 },
+          { label: 'Total tok/s', data: sorted.map(r => r.total_tokens_per_second_mean), borderColor: CHART_COLORS.accent3, backgroundColor: CHART_COLORS.accent3, tension: 0.15 },
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { title: { display: true, text: 'Concurrency (configured streams)' } },
+          y: { title: { display: true, text: 'Tokens / second' } },
+        },
+      },
+    };
+  })());
+
+  const runsWithResources = runs.filter(r => r.resource_usage && r.resource_usage.length);
+  const hwSelect = document.getElementById('t1HwRunSelect');
+  if (hwSelect) {
+    hwSelect.innerHTML = runsWithResources.map((r, i) =>
+      `<option value="${i}">${r.strategy} @${r.concurrency ?? '?'} (${r.run_dir})</option>`).join('');
+    const draw = () => {
+      const r = runsWithResources[Number(hwSelect.value)];
+      const devices = [...new Set(r.resource_usage.map(d => d.device))];
+      const colors = [CHART_COLORS.accent, CHART_COLORS.accent2, CHART_COLORS.accent3, CHART_COLORS.accent4];
+      const datasets = devices.map((dev, i) => ({
+        label: `${dev} util %`,
+        data: r.resource_usage.filter(d => d.device === dev).map(d => ({ x: d.elapsed_s, y: d.util_percent })),
+        borderColor: colors[i % colors.length], backgroundColor: colors[i % colors.length],
+        pointRadius: 0, tension: 0.1,
+      }));
+      makeChart('t1HwChart', {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          parsing: false,
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Elapsed time (s)' } },
+            y: { title: { display: true, text: 'Utilization %' }, min: 0, max: 100 },
+          },
+        },
+      });
+    };
+    hwSelect.onchange = () => { destroyChartById('t1HwChart'); draw(); };
+    draw();
+  }
+}
+
+function destroyChartById(canvasId) {
+  const idx = activeCharts.findIndex(c => c.canvas && c.canvas.id === canvasId);
+  if (idx >= 0) activeCharts.splice(idx, 1)[0].destroy();
+}
+
+// ---------- Test 2: Chatbot ----------
 
 function renderTest2(runs) {
   if (!runs.length) return '<p class="empty">No Test 2 data for this model.</p>';
-  let html = '<div class="test-note">4 simulated users (general, code, summary, knowledge) against the inference server directly (Ollama or vLLM, whichever "Target" shows below).</div>';
+  let html = '<div class="test-note">Simulated concurrent users (general, code, summary, knowledge), each running a conversation of 1+ turns, against the inference server directly.</div>';
   html += barChart(runs, r => parallelismLabel(r), r => r.overall_duration_s, ' s total');
-  html += '<table><thead><tr><th>Target</th><th>Parallelism setting</th><th>Users</th><th>Total duration (s)</th><th>Error rate</th><th>TTFT per user (s)</th></tr></thead><tbody>';
+  html += '<table><thead><tr><th>Target</th><th>Parallelism setting</th><th>Users</th><th>Turns/conv.</th><th>Total duration (s)</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
-    const ttfts = r.users.map(u => `${u.user_id}: ${fmt(u.ttft_s)}`).join(', ');
     html += `<tr><td>${r.target ?? '-'}</td><td>${parallelismLabel(r)}</td><td>${r.concurrent_users ?? '-'}</td>
-      <td>${fmt(r.overall_duration_s)}</td><td>${pct(r.error_rate)}</td><td>${ttfts}</td></tr>`;
+      <td>${r.turns_per_conversation ?? 1}</td><td>${fmt(r.overall_duration_s)}</td><td>${pct(r.error_rate)}</td></tr>`;
   }
-  return html + '</tbody></table>';
+  html += '</tbody></table>';
+
+  html += '<div class="run-select">Run: <select id="t2RunSelect"></select></div>';
+  html += '<h3>1. End-to-end latency per turn</h3>';
+  html += '<div class="chart-card"><canvas id="t2LatencyChart"></canvas></div>';
+  html += '<h3>2. Context growth vs conversation turns</h3>';
+  html += '<div class="chart-card"><canvas id="t2ContextChart"></canvas></div>';
+  html += '<h3>3. Latency distribution (all turns in this run)</h3>';
+  html += '<div class="chart-card"><canvas id="t2DistChart"></canvas><div class="stat-row" id="t2DistStats"></div></div>';
+
+  return html;
 }
 
 function parallelismLabel(r) {
-  // OLLAMA_NUM_PARALLEL is Ollama-specific; vLLM has no equivalent single knob
-  // (it batches continuously on its own), so runs against vLLM simply won't
-  // have this value set - show that plainly instead of implying it applies.
   return r.ollama_num_parallel ? `OLLAMA_NUM_PARALLEL=${r.ollama_num_parallel}` : 'n/a (not Ollama, or unset)';
 }
 
+function wireTest2Charts(runs) {
+  const select = document.getElementById('t2RunSelect');
+  if (!select) return;
+  select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.run_file} (${r.concurrent_users} users, ${r.turns_per_conversation ?? 1} turns)</option>`).join('');
+
+  const draw = () => {
+    const r = runs[Number(select.value)];
+    const maxTurns = Math.max(1, ...r.users.map(u => u.turns.length));
+
+    const perTurn = [];
+    for (let t = 1; t <= maxTurns; t++) {
+      const vals = r.users.map(u => u.turns.find(x => x.turn_id === t)).filter(Boolean).filter(x => !x.error);
+      const mean = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+      perTurn.push({
+        turn: t,
+        ttft: mean(vals.map(v => v.ttft_s).filter(v => v != null)),
+        generation: mean(vals.map(v => v.generation_duration_s).filter(v => v != null)),
+        total: mean(vals.map(v => v.total_latency_s).filter(v => v != null)),
+        userInput: mean(vals.map(v => v.user_input_tokens_approx).filter(v => v != null)),
+        context: mean(vals.map(v => v.context_tokens).filter(v => v != null)),
+        cumOutput: mean(vals.map(v => v.cumulative_output_tokens).filter(v => v != null)),
+      });
+    }
+
+    destroyChartById('t2LatencyChart');
+    makeChart('t2LatencyChart', {
+      type: 'line',
+      data: {
+        labels: perTurn.map(p => p.turn),
+        datasets: [
+          { label: 'TTFT (s)', data: perTurn.map(p => p.ttft), borderColor: CHART_COLORS.accent, backgroundColor: CHART_COLORS.accent, tension: 0.15 },
+          { label: 'Generation time (s)', data: perTurn.map(p => p.generation), borderColor: CHART_COLORS.accent2, backgroundColor: CHART_COLORS.accent2, tension: 0.15 },
+          { label: 'End-to-end latency (s)', data: perTurn.map(p => p.total), borderColor: CHART_COLORS.accent3, backgroundColor: CHART_COLORS.accent3, tension: 0.15 },
+        ],
+      },
+      options: { responsive: true, scales: { x: { title: { display: true, text: 'Conversation turn' } }, y: { title: { display: true, text: 'Seconds (mean across users)' } } } },
+    });
+
+    destroyChartById('t2ContextChart');
+    const contextDatasets = [
+      { label: 'User input tokens', data: perTurn.map(p => p.userInput), borderColor: CHART_COLORS.accent, backgroundColor: CHART_COLORS.accent, tension: 0.15 },
+      { label: 'Context tokens sent (full history)', data: perTurn.map(p => p.context), borderColor: CHART_COLORS.accent2, backgroundColor: CHART_COLORS.accent2, tension: 0.15 },
+      { label: 'Cumulative output tokens', data: perTurn.map(p => p.cumOutput), borderColor: CHART_COLORS.accent3, backgroundColor: CHART_COLORS.accent3, tension: 0.15 },
+    ];
+    if (r.max_context_tokens) {
+      contextDatasets.push({ label: `Context window limit (${r.max_context_tokens})`, data: perTurn.map(() => r.max_context_tokens), borderColor: CHART_COLORS.muted, borderDash: [6, 4], pointRadius: 0 });
+    }
+    makeChart('t2ContextChart', {
+      type: 'line',
+      data: { labels: perTurn.map(p => p.turn), datasets: contextDatasets },
+      options: { responsive: true, scales: { x: { title: { display: true, text: 'Conversation turn' } }, y: { title: { display: true, text: 'Tokens (mean across users)' } } } },
+    });
+
+    const allLatencies = r.users.flatMap(u => u.turns.filter(t => !t.error && t.total_latency_s != null).map(t => t.total_latency_s)).sort((a, b) => a - b);
+    const binCount = Math.min(12, Math.max(4, Math.ceil(Math.sqrt(allLatencies.length))));
+    let bins = [], binLabels = [];
+    if (allLatencies.length) {
+      const min = allLatencies[0], max = allLatencies[allLatencies.length - 1];
+      const width = (max - min) / binCount || 1;
+      bins = new Array(binCount).fill(0);
+      for (const v of allLatencies) {
+        const idx = Math.min(binCount - 1, Math.floor((v - min) / width));
+        bins[idx]++;
+      }
+      binLabels = bins.map((_, i) => `${(min + i * width).toFixed(1)}-${(min + (i + 1) * width).toFixed(1)}s`);
+    }
+    destroyChartById('t2DistChart');
+    makeChart('t2DistChart', {
+      type: 'bar',
+      data: { labels: binLabels, datasets: [{ label: 'Turns', data: bins, backgroundColor: CHART_COLORS.accent }] },
+      options: { responsive: true, scales: { x: { title: { display: true, text: 'Latency bucket' } }, y: { title: { display: true, text: 'Count' }, beginAtZero: true } } },
+    });
+    const statsEl = document.getElementById('t2DistStats');
+    if (statsEl) {
+      statsEl.innerHTML = allLatencies.length
+        ? `<span>P50: <b>${fmt(percentile(allLatencies, 0.50))}s</b></span><span>P95: <b>${fmt(percentile(allLatencies, 0.95))}s</b></span><span>P99: <b>${fmt(percentile(allLatencies, 0.99))}s</b></span><span>n=${allLatencies.length} turns</span>`
+        : '';
+    }
+  };
+  select.onchange = draw;
+  draw();
+}
+
+// ---------- Test 3: RAG ----------
+
 function renderTest3(runs) {
   if (!runs.length) return '<p class="empty">No Test 3 data for this model.</p>';
-  let html = '<div class="test-note">Retrieval (Qdrant + nomic-embed-text) + generation, over the Kubernetes docs corpus.</div>';
+  let html = '<div class="test-note">Retrieval (Qdrant + nomic-embed-text) + generation, over the Kubernetes docs corpus. No reranking or keyword/hybrid search stage exists in this pipeline (vector-only) - charts below mark those as n/a rather than fabricating a value.</div>';
   html += barChart(runs, r => `q${r.num_queries} c${r.concurrency}`, r => r.wall_duration_s, ' s wall-clock');
-  html += '<table><thead><tr><th>Queries</th><th>Concurrency</th><th>Wall-clock (s)</th><th>Mean retrieval (s)</th><th>Mean generation (s)</th><th>Tokens in/out</th><th>Error rate</th><th>Hit rate top-k</th></tr></thead><tbody>';
+  html += '<table><thead><tr><th>Queries</th><th>Concurrency</th><th>Top-K</th><th>Wall-clock (s)</th><th>Mean retrieval (s)</th><th>Mean generation (s)</th><th>Tokens in/out</th><th>Avg similarity</th><th>Error rate</th><th>Hit rate top-k</th></tr></thead><tbody>';
   for (const r of runs) {
-    html += `<tr><td>${r.num_queries ?? '-'}</td><td>${r.concurrency ?? '-'}</td><td>${fmt(r.wall_duration_s)}</td>
+    html += `<tr><td>${r.num_queries ?? '-'}</td><td>${r.concurrency ?? '-'}</td><td>${r.top_k ?? '-'}</td><td>${fmt(r.wall_duration_s)}</td>
       <td>${fmt(r.avg_retrieval_s, 3)}</td><td>${fmt(r.avg_generation_s)}</td>
       <td>${fmt(r.avg_input_tokens, 0)} / ${fmt(r.avg_output_tokens, 0)}</td>
+      <td>${fmt(r.avg_similarity_score, 3)}</td>
       <td>${pct(r.error_rate)}</td>
       <td>${pct(r.expected_chunk_hit_rate)}</td></tr>`;
   }
-  return html + '</tbody></table>';
+  html += '</tbody></table>';
+
+  html += '<h3>1. RAG pipeline latency breakdown</h3>';
+  html += '<div class="chart-card"><canvas id="t3BreakdownChart"></canvas><div class="chart-note">Reranking: not implemented in this pipeline (n/a, not estimated).</div></div>';
+
+  html += '<h3>2. Retrieval performance vs top-K</h3>';
+  html += '<div class="chart-card"><canvas id="t3TopkChart"></canvas><div class="chart-note">Keyword and hybrid search: not implemented in this pipeline (vector-only) - shown as n/a.</div></div>';
+
+  html += '<h3>3. Token distribution per RAG request</h3>';
+  html += '<div class="run-select">Run: <select id="t3RunSelect"></select></div>';
+  html += '<div class="chart-card"><canvas id="t3TokensChart"></canvas></div>';
+
+  return html;
+}
+
+function wireTest3Charts(runs) {
+  const sortedByScale = [...runs].sort((a, b) => (a.num_queries ?? 0) - (b.num_queries ?? 0));
+  makeChart('t3BreakdownChart', {
+    type: 'bar',
+    data: {
+      labels: sortedByScale.map(r => `q${r.num_queries} c${r.concurrency}`),
+      datasets: [
+        { label: 'Embedding (s)', data: sortedByScale.map(r => r.avg_embedding_s), backgroundColor: CHART_COLORS.accent, stack: 's' },
+        { label: 'Vector search (s)', data: sortedByScale.map(r => r.avg_vector_search_s), backgroundColor: CHART_COLORS.accent2, stack: 's' },
+        { label: 'Generation (s)', data: sortedByScale.map(r => r.avg_generation_s), backgroundColor: CHART_COLORS.accent3, stack: 's' },
+      ],
+    },
+    options: { responsive: true, scales: { x: { stacked: true, title: { display: true, text: 'Run (scale)' } }, y: { stacked: true, title: { display: true, text: 'Avg time (s)' } } } },
+  });
+
+  const byTopK = {};
+  for (const r of runs) {
+    const k = r.top_k ?? '?';
+    if (!byTopK[k]) byTopK[k] = [];
+    if (r.avg_retrieval_s != null) byTopK[k].push(r.avg_retrieval_s);
+  }
+  const topKs = Object.keys(byTopK).sort((a, b) => Number(a) - Number(b));
+  makeChart('t3TopkChart', {
+    type: 'bar',
+    data: {
+      labels: topKs.map(k => `top-${k}`),
+      datasets: [
+        { label: 'Vector search (retrieval, s)', data: topKs.map(k => { const v = byTopK[k]; return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }), backgroundColor: CHART_COLORS.accent },
+        { label: 'Keyword search (n/a)', data: topKs.map(() => null), backgroundColor: CHART_COLORS.muted },
+        { label: 'Hybrid search (n/a)', data: topKs.map(() => null), backgroundColor: CHART_COLORS.border },
+      ],
+    },
+    options: { responsive: true, scales: { x: { title: { display: true, text: 'Top-K' } }, y: { title: { display: true, text: 'Avg retrieval latency (s)' } } } },
+  });
+
+  const select = document.getElementById('t3RunSelect');
+  if (select) {
+    select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.run_file}</option>`).join('');
+    const draw = () => {
+      const r = runs[Number(select.value)];
+      destroyChartById('t3TokensChart');
+      makeChart('t3TokensChart', {
+        type: 'bar',
+        data: {
+          labels: r.per_request.map(q => q.index),
+          datasets: [
+            { label: 'System prompt tokens (approx)', data: r.per_request.map(q => q.system_prompt_tokens_approx), backgroundColor: CHART_COLORS.accent, stack: 's' },
+            { label: 'User query tokens (approx)', data: r.per_request.map(q => q.user_query_tokens_approx), backgroundColor: CHART_COLORS.accent2, stack: 's' },
+            { label: 'Retrieved context tokens (approx)', data: r.per_request.map(q => q.context_tokens_approx), backgroundColor: CHART_COLORS.accent4, stack: 's' },
+            { label: 'Output tokens (exact)', data: r.per_request.map(q => q.output_tokens), backgroundColor: CHART_COLORS.accent3, stack: 's' },
+          ],
+        },
+        options: { responsive: true, scales: { x: { stacked: true, title: { display: true, text: 'Request index' } }, y: { stacked: true, title: { display: true, text: 'Tokens' } } } },
+      });
+    };
+    select.onchange = draw;
+    draw();
+  }
 }
 
 function renderModel(model) {
   const d = DATA[model];
+  destroyCharts();
   const container = document.getElementById('modelContent');
   container.innerHTML = `
     <section><h2>Test 1 - Raw inference performance</h2>${renderTest1(d.test1)}</section>
     <section><h2>Test 2 - Concurrent chatbot</h2>${renderTest2(d.test2)}</section>
     <section><h2>Test 3 - RAG</h2>${renderTest3(d.test3)}</section>
   `;
+  if (d.test1.length) wireTest1Charts(d.test1);
+  if (d.test2.length) wireTest2Charts(d.test2);
+  if (d.test3.length) wireTest3Charts(d.test3);
 }
 
 function init() {
@@ -318,7 +764,15 @@ function init() {
   if (models.length) renderModel(models[0]);
 }
 
-init();
+// Chart.js is loaded from an external <script src> - don't assume it has
+// finished loading by the time this inline script runs (seen in practice:
+// on a slow connection the external script can still be in flight here,
+// leaving `Chart` undefined and every chart silently blank).
+if (window.Chart) {
+  init();
+} else {
+  window.addEventListener('load', init);
+}
 </script>
 </body>
 </html>

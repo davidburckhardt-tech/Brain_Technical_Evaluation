@@ -44,7 +44,15 @@ MONITOR_OUTPUT="${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_reso
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_resources.py" \
   --output "${MONITOR_OUTPUT}" --interval 1 &
 MONITOR_PID=$!
-trap 'kill -TERM "${MONITOR_PID}" 2>/dev/null; wait "${MONITOR_PID}" 2>/dev/null' EXIT
+
+# vLLM-specific queue/KV-cache metrics - harmless no-op (blank rows) if
+# OLLAMA_HOST_URL isn't actually a vLLM server.
+"${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_vllm_metrics.py" \
+  --vllm-url "${OLLAMA_HOST_URL}" \
+  --output "${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_vllm_metrics.csv" --interval 1 &
+VLLM_METRICS_PID=$!
+
+trap 'kill -TERM "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null; wait "${MONITOR_PID}" "${VLLM_METRICS_PID}" 2>/dev/null' EXIT
 
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/benchmarks/rag/query.py" \
   --num-queries "${NUM_QUERIES}" \

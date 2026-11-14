@@ -161,14 +161,26 @@ async def run_one_query(
         overall_start = time.monotonic()
 
         try:
-            retrieval_start = time.monotonic()
+            embed_start = time.monotonic()
             query_vector = await embed_question(client, args.embedding_host, args.embedding_model, qa["question"])
+            embedding_duration = time.monotonic() - embed_start
+
+            vector_search_start = time.monotonic()
             chunks = await retrieve_chunks(client, args.qdrant_host, args.collection, query_vector, args.top_k)
-            retrieval_duration = time.monotonic() - retrieval_start
+            vector_search_duration = time.monotonic() - vector_search_start
+            retrieval_duration = embedding_duration + vector_search_duration
 
             retrieved_chunk_ids = [c["payload"]["id"] for c in chunks]
+            similarity_scores = [c.get("score") for c in chunks]
             found_expected = qa.get("source_chunk") in retrieved_chunk_ids
             context = "\n\n".join(c["payload"]["text"] for c in chunks)
+            # Rough token counts (whitespace split) for the per-segment token
+            # breakdown chart - exact counts for the FULL prompt come from the
+            # model's own `usage` field (generation.input_tokens below); this
+            # just splits that total out by segment, which the API doesn't do.
+            system_prompt_tokens_approx = len(PROMPT_TEMPLATE.format(context="", question="").split())
+            user_query_tokens_approx = len(qa["question"].split())
+            context_tokens_approx = len(context.split())
             prompt = PROMPT_TEMPLATE.format(context=context, question=qa["question"])
 
             generation_start = time.monotonic()
@@ -184,15 +196,25 @@ async def run_one_query(
                 "question_id": qa.get("id"),
                 "error": error_label,
                 "expected_chunk_found_in_top_k": None,
+                "similarity_scores": None,
+                "avg_similarity_score": None,
+                "embedding_duration_s": None,
+                "embedding_dimensions": None,
+                "vector_search_duration_s": None,
                 "retrieval_duration_s": None,
                 "generation_ttft_s": None,
                 "generation_duration_s": None,
                 "total_duration_s": time.monotonic() - overall_start,
+                "system_prompt_tokens_approx": None,
+                "user_query_tokens_approx": None,
+                "context_tokens_approx": None,
                 "input_tokens": None,
                 "output_tokens": None,
             }
 
         total_duration = time.monotonic() - overall_start
+        valid_scores = [s for s in similarity_scores if s is not None]
+        avg_similarity = sum(valid_scores) / len(valid_scores) if valid_scores else None
 
         if not quiet:
             async with print_lock:
@@ -205,10 +227,18 @@ async def run_one_query(
             "question_id": qa.get("id"),
             "error": None,
             "expected_chunk_found_in_top_k": found_expected,
+            "similarity_scores": similarity_scores,
+            "avg_similarity_score": avg_similarity,
+            "embedding_duration_s": embedding_duration,
+            "embedding_dimensions": len(query_vector),
+            "vector_search_duration_s": vector_search_duration,
             "retrieval_duration_s": retrieval_duration,
             "generation_ttft_s": generation.ttft_s,
             "generation_duration_s": generation_duration,
             "total_duration_s": total_duration,
+            "system_prompt_tokens_approx": system_prompt_tokens_approx,
+            "user_query_tokens_approx": user_query_tokens_approx,
+            "context_tokens_approx": context_tokens_approx,
             "input_tokens": generation.input_tokens,
             "output_tokens": generation.output_tokens,
         }
@@ -241,6 +271,7 @@ async def main_async(args: argparse.Namespace):
     summary = {
         "num_queries": len(questions),
         "concurrency": args.concurrency,
+        "top_k": args.top_k,
         "model": args.model,
         "embedding_model": args.embedding_model,
         "collection": args.collection,
@@ -260,15 +291,22 @@ async def main_async(args: argparse.Namespace):
           f"error_rate={error_rate:.0%}")
 
     if succeeded:
+        avg_embedding = sum(r["embedding_duration_s"] for r in succeeded) / len(succeeded)
+        avg_vector_search = sum(r["vector_search_duration_s"] for r in succeeded) / len(succeeded)
         avg_retrieval = sum(r["retrieval_duration_s"] for r in succeeded) / len(succeeded)
         avg_generation = sum(r["generation_duration_s"] for r in succeeded) / len(succeeded)
         avg_input_tokens = sum(r["input_tokens"] or 0 for r in succeeded) / len(succeeded)
         avg_output_tokens = sum(r["output_tokens"] or 0 for r in succeeded) / len(succeeded)
         hit_rate = sum(1 for r in succeeded if r["expected_chunk_found_in_top_k"]) / len(succeeded)
-        print(f"    avg retrieval time: {avg_retrieval:.3f}s")
+        scores = [r["avg_similarity_score"] for r in succeeded if r["avg_similarity_score"] is not None]
+        avg_similarity = sum(scores) / len(scores) if scores else None
+        print(f"    avg embedding time: {avg_embedding:.3f}s  avg vector search time: {avg_vector_search:.3f}s")
+        print(f"    avg retrieval time (embedding+search): {avg_retrieval:.3f}s")
         print(f"    avg generation time: {avg_generation:.2f}s")
         print(f"    avg tokens: {avg_input_tokens:.0f} in / {avg_output_tokens:.0f} out")
         print(f"    expected-chunk hit rate (top-{args.top_k}): {hit_rate:.0%}")
+        if avg_similarity is not None:
+            print(f"    avg similarity score (top-{args.top_k}): {avg_similarity:.3f}")
     print(f"==> Full results saved to {output_path}")
 
 
