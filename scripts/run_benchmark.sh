@@ -19,10 +19,23 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 VENV_DIR="${PROJECT_ROOT}/.venv"
 
+# Preserve any of these already set in the calling shell (e.g.
+# `BENCHMARK_CONCURRENCY=8 ./run_benchmark.sh` for a concurrency sweep) -
+# otherwise `source .env` below silently overwrites them with .env's own
+# literal values, since .env's assignments aren't conditional.
+for _v in BENCHMARK_TARGET MODEL_NAME TOKENIZER_MODEL BENCHMARK_REQUEST_COUNT BENCHMARK_CONCURRENCY; do
+  if [[ -v "${_v}" ]]; then declare "_PRESET_${_v}=${!_v}"; fi
+done
+
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
 fi
+
+for _v in BENCHMARK_TARGET MODEL_NAME TOKENIZER_MODEL BENCHMARK_REQUEST_COUNT BENCHMARK_CONCURRENCY; do
+  _preset_name="_PRESET_${_v}"
+  if [[ -v "${_preset_name}" ]]; then declare "${_v}=${!_preset_name}"; fi
+done
 
 BENCHMARK_TARGET="${BENCHMARK_TARGET:-http://localhost:11434}"
 MODEL_NAME="${MODEL_NAME:-llama3:8b}"
