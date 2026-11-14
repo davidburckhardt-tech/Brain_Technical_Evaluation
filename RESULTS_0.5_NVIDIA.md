@@ -1,6 +1,6 @@
 # Results — Phase 0.5 (real NVIDIA GPU test server)
 
-**Status**: Test 1 and Test 2 complete. Test 3 (RAG) pending.
+**Status**: Test 1, Test 2 and Test 3 complete.
 
 This is **not the final Brain hardware** — it's a test server with real NVIDIA GPUs, used to validate the vLLM pipeline on actual GPU hardware before the 4h window with the real unit. Phase 0 (Mac, Ollama) validated the *pipeline*; this phase validates *real GPU behavior*: concurrency scaling, multi-GPU tensor parallelism, and where the hardware actually saturates.
 
@@ -77,7 +77,29 @@ GPU utilization during the 256-user run: both GPUs at 99-100% almost the entire 
 
 ## Test 3 — RAG (retrieval + generation)
 
-**Pending** — not yet run on this server. Will be added once executed (embedding via Ollama/`nomic-embed-text`, generation via the same vLLM server, retrieval via Qdrant with the same k8s-docs corpus from Phase 0).
+**Note on config**: unlike Test 1/Test 2 (2-GPU `VLLM_TENSOR_PARALLEL_SIZE=2`), this sweep ran with vLLM back on **1 GPU** (`VLLM_TENSOR_PARALLEL_SIZE=1`, `VLLM_GPU_MEMORY_UTILIZATION=0.90`). That change was not a choice made up front — it is the fix for a real bottleneck found mid-sweep, see "Reading" below. Embedding via Ollama + `nomic-embed-text`, generation via vLLM, retrieval via Qdrant, same k8s-docs corpus as Phase 0.
+
+| Questions | Concurrency | Wall duration | Avg retrieval | Avg generation | Hit rate (top-k) |
+|---|---|---|---|---|---|
+| 1 | 1 | 1.18s | 0.156s | 1.00s | 100% |
+| 16 | 4 | 3.82s | 0.141s | 0.62s | 94% |
+| 64 | 16 | 4.82s | 0.388s | 0.56s | 92% |
+| 128 | 32 | 8.30s | 1.056s | 0.65s | 89% |
+| 256 | 64 | 14.60s | 2.490s | 0.71s | 85% |
+| 485 | 128 | 27.45s | 5.195s | 1.24s | 87% |
+
+### Reading — the second important finding of this phase
+
+**The bottleneck in RAG at scale is the embedding step, not generation — and it's a GPU-contention issue, not a concurrency-cap issue.** Generation time stays flat and low across the whole sweep (0.56-1.24s) — vLLM's continuous batching handles this load the same way it did in Test 1/2. Retrieval (embed + Qdrant search) time, however, grows roughly linearly with concurrency: 0.14s at c4 → 5.2s at c128, a ~35x increase.
+
+Two hypotheses were tested in order:
+
+1. **Ollama's own concurrency cap (`OLLAMA_NUM_PARALLEL`, default 3-4).** Raised it to 32 via a systemd override (`/etc/systemd/system/ollama.service.d/override.conf`) and restarted the service. This did **not** meaningfully help (retrieval time at c128 barely moved, ~7.0s before vs ~7.2s after) — ruled out.
+2. **GPU VRAM contention between vLLM's 2-GPU reservation and Ollama's embedding model.** With `VLLM_TENSOR_PARALLEL_SIZE=2`, vLLM's KV-cache pool left no free VRAM on either GPU, forcing Ollama's embedding model onto CPU — confirmed directly via `ollama ps`, which showed `nomic-embed-text:latest ... 100% CPU` during a live run. Reverting vLLM to 1 GPU (`VLLM_TENSOR_PARALLEL_SIZE=1`) freed the second GPU entirely for Ollama; `ollama ps` then showed `100% GPU`, and retrieval time at the same q485/c128 point improved (5.195s vs. ~7.0s on CPU) — confirming VRAM contention, not Ollama's own concurrency setting, was the real cause.
+
+Even back on GPU, though, retrieval time still scales worse under concurrency than vLLM's generation does (0.14s → 5.2s vs. 0.56s → 1.24s). This looks like an inherent limitation of Ollama's embedding serving (no continuous batching comparable to vLLM's), not a config mistake — a genuine architectural finding, not something to "fix" further within this stack.
+
+**Practical implication for the real Brain unit**: a hybrid RAG stack (generation on vLLM, embeddings on Ollama, sharing GPUs) needs enough free VRAM for both to run on GPU simultaneously — multi-GPU tensor parallelism for generation can starve the embedding model of VRAM and silently push it onto CPU, with no error, just a much slower retrieval step. If embedding throughput matters at the real unit's target concurrency, migrating embeddings onto vLLM (or another batching-aware embedding server) instead of Ollama is worth evaluating — this was researched (see README §7.2) but not attempted here due to known compatibility risk with `nomic-embed-text-v1.5` on vLLM ([vllm-project/vllm#20129](https://github.com/vllm-project/vllm/issues/20129)).
 
 ---
 
@@ -90,5 +112,6 @@ Beyond the vLLM/CUDA driver fixes already validated in Phase 0.5's first pass (s
 3. **A killed vLLM process can leave orphaned GPU-resident workers.** `pkill -f "vllm serve"` only kills the parent process; the actual GPU memory holders (`VLLM::EngineCore`, `VLLM::Worker_TPx`) can survive and keep VRAM allocated, causing the *next* start attempt to OOM immediately even though `nvidia-smi` looked clean moments before. Needs `pkill -9 -f "VLLM::"` too.
 4. **GuideLLM's `streams=N` concurrency isn't real if `max_requests` is close to or below N.** With only 100 total requests requested and `streams=128`, GuideLLM can't actually sustain 128 in flight — the reported "Concurrency Mean" came back as ~99, not 128. Needed `BENCHMARK_REQUEST_COUNT` well above the concurrency level being tested (300 for streams=128) to get a real reading.
 5. **`simulate_users.py`'s live per-token streaming output is unusable noise past a handful of users.** Fine for the original 4-user "recording" use case, unreadable once pushed to 32+ simulated users (interleaved tokens from dozens of users at once). Now auto-switches to an aggregate-only summary (error rate, mean/median TTFT and latency) above 16 users.
+6. **Ollama's embedding model silently falls back to CPU under GPU VRAM pressure from a co-located vLLM instance.** No error, no warning — just a much slower retrieval step (5-7s vs. ~0.15s warm/idle). Only detectable by explicitly checking `ollama ps`'s PROCESSOR column during a live run. Not a script bug to "fix" per se, but a real deployment gotcha for any hybrid vLLM+Ollama RAG setup on shared GPUs on the real hardware — documented here so it isn't rediscovered the hard way inside the 4h window.
 
 None of these are specific to this test server — they're general script/tooling bugs that would have hit the exact same way on the real Brain hardware, so finding them now (rather than inside the 4h window) was the point of this pass.

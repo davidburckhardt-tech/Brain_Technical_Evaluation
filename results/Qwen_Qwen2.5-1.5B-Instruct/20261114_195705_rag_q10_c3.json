@@ -1,0 +1,131 @@
+{
+  "num_queries": 10,
+  "concurrency": 3,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "embedding_model": "nomic-embed-text",
+  "collection": "k8s_docs",
+  "wall_duration_s": 2.214586842001154,
+  "error_rate": 0.0,
+  "queries": [
+    {
+      "index": 0,
+      "question_id": "kubernetes-eval-manualv2-0018",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.15630564599996433,
+      "generation_ttft_s": 0.01361815999916871,
+      "generation_duration_s": 0.809738242001913,
+      "total_duration_s": 0.9660485909989802,
+      "input_tokens": 551,
+      "output_tokens": 134
+    },
+    {
+      "index": 1,
+      "question_id": "kubernetes-eval-manualv2-0019",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.2051451219995215,
+      "generation_ttft_s": 0.02029396500074654,
+      "generation_duration_s": 0.14050794200011296,
+      "total_duration_s": 0.3456585579988314,
+      "input_tokens": 489,
+      "output_tokens": 22
+    },
+    {
+      "index": 2,
+      "question_id": "kubernetes-eval-manualv2-0020",
+      "error": null,
+      "expected_chunk_found_in_top_k": false,
+      "retrieval_duration_s": 0.2647007060004398,
+      "generation_ttft_s": 0.023417320000589825,
+      "generation_duration_s": 0.15990734099978,
+      "total_duration_s": 0.4246135210014472,
+      "input_tokens": 556,
+      "output_tokens": 25
+    },
+    {
+      "index": 3,
+      "question_id": "kubernetes-eval-manualv2-0021",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.10775984700012486,
+      "generation_ttft_s": 0.020926582998072263,
+      "generation_duration_s": 0.6038538959983271,
+      "total_duration_s": 0.7116197120012657,
+      "input_tokens": 511,
+      "output_tokens": 96
+    },
+    {
+      "index": 4,
+      "question_id": "kubernetes-eval-manualv2-0022",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.14698898200003896,
+      "generation_ttft_s": 0.06174262700005784,
+      "generation_duration_s": 0.5380923160009843,
+      "total_duration_s": 0.6850858119978511,
+      "input_tokens": 657,
+      "output_tokens": 81
+    },
+    {
+      "index": 5,
+      "question_id": "kubernetes-eval-manualv2-0023",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.10490508200018667,
+      "generation_ttft_s": 0.03773180500138551,
+      "generation_duration_s": 0.26878110200050287,
+      "total_duration_s": 0.37369215699800407,
+      "input_tokens": 496,
+      "output_tokens": 39
+    },
+    {
+      "index": 6,
+      "question_id": "kubernetes-eval-manualv2-0024",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.1972466630031704,
+      "generation_ttft_s": 0.04756498200003989,
+      "generation_duration_s": 0.5223712529987097,
+      "total_duration_s": 0.719624572997418,
+      "input_tokens": 616,
+      "output_tokens": 65
+    },
+    {
+      "index": 7,
+      "question_id": "kubernetes-eval-manualv2-0025",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.20731042699844693,
+      "generation_ttft_s": 0.05695575099889538,
+      "generation_duration_s": 0.2430215179992956,
+      "total_duration_s": 0.45033679799962556,
+      "input_tokens": 612,
+      "output_tokens": 26
+    },
+    {
+      "index": 8,
+      "question_id": "kubernetes-eval-manualv2-0026",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.10761937300048885,
+      "generation_ttft_s": 0.06545824299973901,
+      "generation_duration_s": 0.15645320100156823,
+      "total_duration_s": 0.26407710000057705,
+      "input_tokens": 684,
+      "output_tokens": 17
+    },
+    {
+      "index": 9,
+      "question_id": "kubernetes-eval-manualv2-0046",
+      "error": null,
+      "expected_chunk_found_in_top_k": true,
+      "retrieval_duration_s": 0.1079590859990276,
+      "generation_ttft_s": 0.058222284002113156,
+      "generation_duration_s": 0.512304777999816,
+      "total_duration_s": 0.6202687909972155,
+      "input_tokens": 564,
+      "output_tokens": 86
+    }
+  ]
+}
