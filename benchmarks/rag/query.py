@@ -155,6 +155,7 @@ async def run_one_query(
     qa: dict,
     index: int,
     print_lock: asyncio.Lock,
+    quiet: bool,
 ) -> dict:
     async with semaphore:
         overall_start = time.monotonic()
@@ -175,8 +176,9 @@ async def run_one_query(
             generation_duration = time.monotonic() - generation_start
         except Exception as exc:
             error_label = classify_error(exc)
-            async with print_lock:
-                print(f"[q{index}] FAILED: {error_label} -> {qa['question'][:70]}")
+            if not quiet:
+                async with print_lock:
+                    print(f"[q{index}] FAILED: {error_label} -> {qa['question'][:70]}")
             return {
                 "index": index,
                 "question_id": qa.get("id"),
@@ -192,10 +194,11 @@ async def run_one_query(
 
         total_duration = time.monotonic() - overall_start
 
-        async with print_lock:
-            print(f"[q{index}] retrieval={retrieval_duration:.2f}s generation={generation_duration:.2f}s "
-                  f"(found_expected_chunk={found_expected}, in={generation.input_tokens}tok "
-                  f"out={generation.output_tokens}tok) -> {qa['question'][:70]}")
+        if not quiet:
+            async with print_lock:
+                print(f"[q{index}] retrieval={retrieval_duration:.2f}s generation={generation_duration:.2f}s "
+                      f"(found_expected_chunk={found_expected}, in={generation.input_tokens}tok "
+                      f"out={generation.output_tokens}tok) -> {qa['question'][:70]}")
 
         return {
             "index": index,
@@ -213,6 +216,9 @@ async def run_one_query(
 
 async def main_async(args: argparse.Namespace):
     questions = load_questions(Path(args.qa_file), args.num_queries)
+    # Auto-silence per-query lines above 16 queries - one line per query is
+    # fine for a handful but unreadable noise at 50-100+.
+    quiet = args.quiet or len(questions) > 16
     print(f"==> Running {len(questions)} RAG queries (concurrency={args.concurrency}) "
           f"against model={args.model}, collection={args.collection}\n")
 
@@ -223,7 +229,7 @@ async def main_async(args: argparse.Namespace):
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(
             *(
-                run_one_query(client, semaphore, args, qa, i, print_lock)
+                run_one_query(client, semaphore, args, qa, i, print_lock, quiet)
                 for i, qa in enumerate(questions)
             )
         )
@@ -279,6 +285,10 @@ def main():
     parser.add_argument("--qdrant-host", default="http://localhost:6333")
     parser.add_argument("--collection", default="k8s_docs")
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="Suppress per-query output lines. Also applied automatically above 16 queries.",
+    )
     args = parser.parse_args()
     if args.embedding_host is None:
         args.embedding_host = args.ollama_host
