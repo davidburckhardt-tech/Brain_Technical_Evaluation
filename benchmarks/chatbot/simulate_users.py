@@ -146,6 +146,10 @@ async def main_async(
     target: str, model: str, prompts_file: Path, output_path: Path, ollama_num_parallel: str | None, quiet: bool
 ):
     prompts = load_prompts(prompts_file)
+    # Auto-silence live per-token/per-user streaming above 16 users - with
+    # dozens or hundreds of simulated users, interleaved tokens from every
+    # one of them printed live is unreadable noise, not useful for recording.
+    quiet = quiet or len(prompts) > 16
     print(f"==> Simulating {len(prompts)} concurrent users against {target} (model: {model})\n")
 
     print_lock = asyncio.Lock()
@@ -175,7 +179,7 @@ async def main_async(
 
     ok_results = [r for r in results if not r["error"]]
 
-    if quiet or len(prompts) > 16:
+    if quiet:
         # Aggregate-only summary - a per-user line per request is noise once
         # there are dozens/hundreds of simulated users.
         ttfts = [r["ttft_s"] for r in ok_results if r["ttft_s"] is not None]
