@@ -3,12 +3,22 @@
 # datasets/prompts.jsonl at the same time against Ollama directly (for real,
 # instrumented metrics), while Open WebUI (scripts/start_chatbot_ui.sh) can
 # be running alongside for the visual/recording layer.
+#
+# Usage: ./scripts/run_chatbot_test.sh [--model <short-name>]
+#   --model (see scripts/lib_model.sh) sets MODEL_NAME and, same as
+#   run_benchmark.sh, makes sure vLLM is actually serving that model first
+#   (downloading it if not already cached).
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 VENV_DIR="${PROJECT_ROOT}/.venv"
+
+# shellcheck disable=SC1091
+source "${PROJECT_ROOT}/scripts/lib_model.sh"
+parse_model_flag "$@"
+set -- "${PARSED_ARGS[@]}"
 
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
@@ -24,6 +34,12 @@ PROMPTS_FILE="${PROMPTS_FILE:-}"
 # original behavior) and the model's context window for utilization %.
 CHATBOT_TURNS="${CHATBOT_TURNS:-1}"
 CHATBOT_MAX_CONTEXT_TOKENS="${CHATBOT_MAX_CONTEXT_TOKENS:-}"
+
+if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
+  MODEL_NAME="${RESOLVED_MODEL_REPO}"
+  echo "==> --model given: ensuring vLLM is serving ${MODEL_NAME} (downloads it if not cached)..."
+  VLLM_MODEL="${RESOLVED_MODEL_REPO}" "${PROJECT_ROOT}/scripts/start_inference_vllm.sh"
+fi
 
 if [[ ! -f "${VENV_DIR}/bin/python3" ]]; then
   echo "Error: virtual environment not found. Run scripts/setup.sh first." >&2

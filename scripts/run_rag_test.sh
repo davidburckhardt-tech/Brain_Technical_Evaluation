@@ -2,7 +2,11 @@
 # Test 3 (RAG) - step 2: runs N questions against the retrieval + generation
 # pipeline with a given concurrency, and saves a timestamped JSON summary.
 #
-# Usage: ./scripts/run_rag_test.sh <num_queries> <concurrency>
+# Usage: ./scripts/run_rag_test.sh <num_queries> <concurrency> [--model <short-name>]
+#   --model (see scripts/lib_model.sh) sets MODEL_NAME (the generation
+#   model only - EMBEDDING_MODEL/EMBEDDING_HOST are independent, see below)
+#   and makes sure vLLM is actually serving it first (downloading it if not
+#   already cached).
 
 set -euo pipefail
 
@@ -10,16 +14,26 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 VENV_DIR="${PROJECT_ROOT}/.venv"
 
+# shellcheck disable=SC1091
+source "${PROJECT_ROOT}/scripts/lib_model.sh"
+parse_model_flag "$@"
+set -- "${PARSED_ARGS[@]}"
+
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
 fi
 
-NUM_QUERIES="${1:?Usage: run_rag_test.sh <num_queries> <concurrency>}"
-CONCURRENCY="${2:?Usage: run_rag_test.sh <num_queries> <concurrency>}"
+NUM_QUERIES="${1:?Usage: run_rag_test.sh <num_queries> <concurrency> [--model <short-name>]}"
+CONCURRENCY="${2:?Usage: run_rag_test.sh <num_queries> <concurrency> [--model <short-name>]}"
 
 OLLAMA_HOST_URL="${OLLAMA_HOST:-http://localhost:11434}"
 MODEL_NAME="${MODEL_NAME:-llama3:8b}"
+if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
+  MODEL_NAME="${RESOLVED_MODEL_REPO}"
+  echo "==> --model given: ensuring vLLM is serving ${MODEL_NAME} (downloads it if not cached)..."
+  VLLM_MODEL="${RESOLVED_MODEL_REPO}" "${PROJECT_ROOT}/scripts/start_inference_vllm.sh"
+fi
 # EMBEDDING_HOST lets embeddings run against a different server than
 # generation (e.g. Ollama serving nomic-embed-text while vLLM serves the
 # generation model) - defaults to OLLAMA_HOST when unset.

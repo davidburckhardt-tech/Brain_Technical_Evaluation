@@ -12,12 +12,26 @@
 # Note: GuideLLM's CLI changed significantly across versions (this was
 # validated against guidellm==0.8.1). If flags below error out, check:
 #   .venv/bin/guidellm run --help
+#
+# Usage: ./scripts/run_benchmark.sh [--model <short-name>]
+#   --model (see scripts/lib_model.sh for the list) sets MODEL_NAME and
+#   TOKENIZER_MODEL together (they must match - see "Bugs found" in
+#   RESULTS_0.5_NVIDIA.md for why keeping them in sync by hand is risky),
+#   AND makes sure vLLM is actually serving that model first (downloading it
+#   if not already cached) by calling start_inference_vllm.sh - one command
+#   gets you a reproducible run against the right model, no manual .env
+#   edits or separate server restart needed.
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 VENV_DIR="${PROJECT_ROOT}/.venv"
+
+# shellcheck disable=SC1091
+source "${PROJECT_ROOT}/scripts/lib_model.sh"
+parse_model_flag "$@"
+set -- "${PARSED_ARGS[@]}"
 
 # Preserve any of these already set in the calling shell (e.g.
 # `BENCHMARK_CONCURRENCY=8 ./run_benchmark.sh` for a concurrency sweep) -
@@ -42,6 +56,13 @@ MODEL_NAME="${MODEL_NAME:-llama3:8b}"
 TOKENIZER_MODEL="${TOKENIZER_MODEL:-NousResearch/Meta-Llama-3-8B}"
 BENCHMARK_REQUEST_COUNT="${BENCHMARK_REQUEST_COUNT:-10}"
 BENCHMARK_CONCURRENCY="${BENCHMARK_CONCURRENCY:-2}"
+
+if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
+  MODEL_NAME="${RESOLVED_MODEL_REPO}"
+  TOKENIZER_MODEL="${RESOLVED_MODEL_REPO}"
+  echo "==> --model given: ensuring vLLM is serving ${MODEL_NAME} (downloads it if not cached)..."
+  VLLM_MODEL="${RESOLVED_MODEL_REPO}" "${PROJECT_ROOT}/scripts/start_inference_vllm.sh"
+fi
 
 if [[ ! -x "${VENV_DIR}/bin/guidellm" ]]; then
   echo "Error: GuideLLM is not installed. Run scripts/setup.sh first." >&2

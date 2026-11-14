@@ -32,7 +32,13 @@
 #      after `pkill -f "vllm serve"` kills the parent - if a restart OOMs
 #      immediately, check `nvidia-smi` and `pkill -9 -f "VLLM::"` too.
 #
-# Required .env variables (see .env.example):
+# Usage: ./scripts/start_inference_vllm.sh [--model <short-name>]
+#   --model lets you pick the model by a short name instead of editing .env
+#   (see scripts/lib_model.sh for the list, e.g. qwen-2.5-1.5b-instruct,
+#   llama-3.2-1b-instruct) - it's downloaded automatically if not already
+#   cached (step 2 below), same as any other VLLM_MODEL.
+#
+# Required .env variables (see .env.example), unless --model is passed:
 #   VLLM_MODEL                 Hugging Face repo id (e.g. meta-llama/Llama-3.1-8B-Instruct)
 # Optional:
 #   VLLM_HOST (default 0.0.0.0)       VLLM_PORT (default 8000)
@@ -53,12 +59,20 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 VENV_DIR="${PROJECT_ROOT}/.venv-vllm"
 
+# shellcheck disable=SC1091
+source "${PROJECT_ROOT}/scripts/lib_model.sh"
+parse_model_flag "$@"
+set -- "${PARSED_ARGS[@]}"
+
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
 fi
 
-VLLM_MODEL="${VLLM_MODEL:?Set VLLM_MODEL in .env to a Hugging Face repo id, e.g. meta-llama/Llama-3.1-8B-Instruct}"
+if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
+  VLLM_MODEL="${RESOLVED_MODEL_REPO}"
+fi
+VLLM_MODEL="${VLLM_MODEL:?Set VLLM_MODEL in .env, or pass --model <short-name> (e.g. --model qwen-2.5-1.5b-instruct)}"
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
 VLLM_PORT="${VLLM_PORT:-8000}"
 VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
