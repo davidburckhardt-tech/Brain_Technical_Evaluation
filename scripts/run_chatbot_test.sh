@@ -17,6 +17,9 @@ fi
 
 OLLAMA_HOST_URL="${OLLAMA_HOST:-http://localhost:11434}"
 MODEL_NAME="${MODEL_NAME:-llama3:8b}"
+# Optional: point at a bigger prompts file (e.g. datasets/prompts_heavy.jsonl)
+# to simulate more concurrent users than the default 4.
+PROMPTS_FILE="${PROMPTS_FILE:-}"
 
 if [[ ! -f "${VENV_DIR}/bin/python3" ]]; then
   echo "Error: virtual environment not found. Run scripts/setup.sh first." >&2
@@ -41,4 +44,5 @@ trap 'kill -TERM "${MONITOR_PID}" 2>/dev/null; wait "${MONITOR_PID}" 2>/dev/null
   --target "${OLLAMA_HOST_URL}" \
   --model "${MODEL_NAME}" \
   --output "${OUTPUT_FILE}" \
-  --ollama-num-parallel "${OLLAMA_NUM_PARALLEL:-}"
+  --ollama-num-parallel "${OLLAMA_NUM_PARALLEL:-}" \
+  ${PROMPTS_FILE:+--prompts-file "${PROMPTS_FILE}"}

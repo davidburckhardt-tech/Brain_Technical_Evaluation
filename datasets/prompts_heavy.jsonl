@@ -1,0 +1,32 @@
+{"id": "general-1", "category": "general", "prompt": "Explain the difference between supervised and unsupervised machine learning in a few sentences."}
+{"id": "code-1", "category": "code_generation", "prompt": "Write a Python function that checks whether a string is a palindrome, ignoring case and spaces."}
+{"id": "summary-1", "category": "summarization", "prompt": "Summarize the main trade-offs between running a large language model locally versus through a cloud API."}
+{"id": "knowledge-1", "category": "general_knowledge", "prompt": "What were the main causes of the fall of the Roman Empire?"}
+{"id": "general-2", "category": "general", "prompt": "What's the difference between a REST API and a GraphQL API?"}
+{"id": "code-2", "category": "code_generation", "prompt": "Write a function that merges two sorted lists into one sorted list."}
+{"id": "summary-3", "category": "summarization", "prompt": "Summarize the key differences between TCP and UDP."}
+{"id": "knowledge-4", "category": "general_knowledge", "prompt": "Why does the Moon always show the same face to Earth?"}
+{"id": "general-3", "category": "general", "prompt": "Explain how a hash table works and why lookups are fast."}
+{"id": "code-3", "category": "code_generation", "prompt": "Write a function to check if a binary tree is balanced."}
+{"id": "summary-4", "category": "summarization", "prompt": "Summarize how photosynthesis converts light into chemical energy."}
+{"id": "knowledge-2", "category": "general_knowledge", "prompt": "What caused the 2008 global financial crisis?"}
+{"id": "general-4", "category": "general", "prompt": "What is the difference between a process and a thread?"}
+{"id": "code-4", "category": "code_generation", "prompt": "Write a function that detects a cycle in a linked list."}
+{"id": "summary-2", "category": "summarization", "prompt": "Summarize the plot of a typical three-act story structure."}
+{"id": "knowledge-3", "category": "general_knowledge", "prompt": "What is the significance of the Rosetta Stone?"}
+{"id": "general-5", "category": "general", "prompt": "Explain eventual consistency vs strong consistency in distributed databases."}
+{"id": "code-5", "category": "code_generation", "prompt": "Write a function that flattens a nested list of arbitrary depth."}
+{"id": "summary-5", "category": "summarization", "prompt": "Summarize the main arguments for and against remote work."}
+{"id": "knowledge-5", "category": "general_knowledge", "prompt": "What triggered World War I?"}
+{"id": "general-6", "category": "general", "prompt": "What is the CAP theorem and why does it matter for distributed systems?"}
+{"id": "code-6", "category": "code_generation", "prompt": "Write a function that implements binary search on a sorted array."}
+{"id": "summary-6", "category": "summarization", "prompt": "Summarize the differences between relational and NoSQL databases."}
+{"id": "knowledge-6", "category": "general_knowledge", "prompt": "How does a nuclear reactor generate electricity?"}
+{"id": "general-7", "category": "general", "prompt": "Explain the difference between latency and throughput."}
+{"id": "code-7", "category": "code_generation", "prompt": "Write a function that counts word frequency in a block of text."}
+{"id": "summary-7", "category": "summarization", "prompt": "Summarize the key ideas behind the scientific method."}
+{"id": "knowledge-7", "category": "general_knowledge", "prompt": "What is dark matter and why do scientists think it exists?"}
+{"id": "general-8", "category": "general", "prompt": "What's the difference between vertical and horizontal scaling?"}
+{"id": "code-8", "category": "code_generation", "prompt": "Write a function that reverses words in a sentence without using split()."}
+{"id": "summary-8", "category": "summarization", "prompt": "Summarize how vaccines train the immune system."}
+{"id": "knowledge-8", "category": "general_knowledge", "prompt": "What led to the fall of the Berlin Wall?"}
