@@ -52,6 +52,11 @@ mkdir -p "${RESULTS_DIR}"
 # --- 1. Environment: a DEDICATED venv, separate from .venv (GuideLLM's).
 # vLLM pulls in CUDA-specific torch builds that can conflict with other
 # packages; keeping it isolated avoids fighting GuideLLM's own dependencies.
+#
+# On a fresh Ubuntu box, `python3 -m venv` can fail with "ensurepip is not
+# available" because python3-venv is a separate apt package. If that
+# happens: `sudo apt install -y python3.$(python3 -c 'import sys;print(sys.version_info[1])')-venv`
+# (confirmed needed on Ubuntu 24.04 / Python 3.12).
 if [[ ! -d "${VENV_DIR}" ]]; then
   echo "==> Creating vLLM virtual environment at ${VENV_DIR}..."
   python3 -m venv "${VENV_DIR}"
@@ -66,8 +71,12 @@ fi
 # vLLM would otherwise download on first `vllm serve` call, hiding download
 # time inside "startup" time - worth keeping separate so we know, inside the
 # 4-hour window, how much time weight downloads actually cost.
+#
+# Uses `hf` (huggingface_hub>=0.24's CLI, replacing the old `huggingface-cli`
+# name) - confirmed on real hardware (huggingface_hub 2.4.0) that the old
+# name no longer exists as a console script.
 echo "==> Downloading ${VLLM_MODEL} from Hugging Face (skips files already cached)..."
-time "${VENV_DIR}/bin/huggingface-cli" download "${VLLM_MODEL}" \
+time "${VENV_DIR}/bin/hf" download "${VLLM_MODEL}" \
   ${HF_TOKEN:+--token "${HF_TOKEN}"}
 
 # --- 3. Start vLLM's OpenAI-compatible server, if not already serving this model.
