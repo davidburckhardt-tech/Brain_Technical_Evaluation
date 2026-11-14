@@ -4,8 +4,9 @@
 # OpenAI-compatible server, and warms it up with a real request.
 #
 # Validated end-to-end on a real NVIDIA test server (2x RTX 4070 SUPER,
-# driver 560.35.03 / CUDA 12.6, Ubuntu 24.04). Two fixes were needed to get
-# there, both handled automatically below:
+# driver 560.35.03 / CUDA 12.6, Ubuntu 24.04), both single-GPU and with
+# VLLM_TENSOR_PARALLEL_SIZE=2 across both GPUs. Fixes needed to get there,
+# handled automatically below:
 #   1. vLLM is pinned to 0.19.1. Versions 0.20.0+ ship a precompiled native
 #      extension statically linked against CUDA 13.0, which fails with
 #      "NVIDIA driver on your system is too old" / "libcudart.so.13: cannot
@@ -19,6 +20,17 @@
 #      prints), crashes vLLM 0.19.1 with "ValueError: invalid literal for
 #      int() ... 'GPU-28a2decb-...'" - it expects plain numeric indices.
 #      This script normalizes it to numeric indices below.
+#   3. With VLLM_TENSOR_PARALLEL_SIZE=2 (multi-GPU), VLLM_GPU_MEMORY_UTILIZATION
+#      needs more headroom than with 1 GPU: at 0.90, each rank's own CUDA
+#      context/NCCL overhead pushed it over the card's physical VRAM and the
+#      warm-up forward pass OOM'd ("CUDA out of memory. Tried to allocate
+#      38.00 MiB ... 11.48 GiB memory in use") even though the model itself
+#      is tiny. 0.80 worked on this hardware - lower it further (or raise it
+#      back toward 0.90 for single-GPU) if the Brain unit OOMs at startup.
+#      Separately: a killed vLLM process can leave its worker subprocesses
+#      (VLLM::EngineCore, VLLM::Worker_TPx) alive and holding VRAM even
+#      after `pkill -f "vllm serve"` kills the parent - if a restart OOMs
+#      immediately, check `nvidia-smi` and `pkill -9 -f "VLLM::"` too.
 #
 # Required .env variables (see .env.example):
 #   VLLM_MODEL                 Hugging Face repo id (e.g. meta-llama/Llama-3.1-8B-Instruct)
