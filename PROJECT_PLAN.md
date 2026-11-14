@@ -70,7 +70,7 @@ brain-demo/
 │   ├── setup.sh
 │   ├── download_models.sh
 │   ├── start_inference_ollama.sh      # Phase 0 (Mac)
-│   ├── start_inference_vllm.sh        # Real hardware — untested, see §9e
+│   ├── start_inference_vllm.sh        # Real NVIDIA hardware — validated, see §9e
 │   ├── run_benchmark.sh        # guidellm (primary) / aiperf (optional)
 │   └── collect_metrics.sh
 ├── benchmarks/
@@ -155,18 +155,24 @@ With `streams=3` it's very clear in the video: 3 of the 4 users start almost ins
 
 Previously, if a single request failed (timeout, connection, insufficient server memory), the whole test would crash. Now Test 2 and Test 3 capture errors per request individually (without bringing down the rest) and classify them heuristically (`connection_error`, `timeout`, `http_<code>_possible_oom` if the response body mentions memory, or other) — specifically useful for when the hardware gets pushed to its limit with large models or heavy concurrency. Test 1 already had this from GuideLLM (`request_totals.errored`); it just needed surfacing, and it's now in `results/summary.csv` and the dashboard.
 
-## 9e. `start_inference_vllm.sh` — script for real hardware (untested)
+## 9e. `start_inference_vllm.sh` — script for real hardware (validated on a real NVIDIA test server)
 
-`start_inference.sh` was split into two scripts, one per runtime: `start_inference_ollama.sh` (the usual one, Phase 0/Mac) and `start_inference_vllm.sh` (new, for once we have the real unit). The vLLM one conceptually does the same thing as the Ollama one — download the model, start the server, warm it up — but it was never possible to test it because **vLLM needs an NVIDIA GPU and this Mac doesn't have one**. It was built anyway, because having it written (even if it needs adjusting on the spot) beats starting from zero within the 4h window.
+`start_inference.sh` was split into two scripts, one per runtime: `start_inference_ollama.sh` (the usual one, Phase 0/Mac) and `start_inference_vllm.sh` (for NVIDIA hardware). It was first written without GPU access, as a best-effort first draft. It has since been tested end-to-end (health check + warmup request both succeeding) against a real NVIDIA test server (2x RTX 4070 SUPER, driver 560.35.03 / CUDA 12.6, Ubuntu 24.04) — not the final Brain unit, but real NVIDIA + vLLM hardware, which is what this pass was meant to validate.
 
 Substantive differences from the Ollama one, documented in the script itself:
-- **Model source**: takes a Hugging Face repo id (`VLLM_MODEL`), not an Ollama tag. The download is an explicit, timed step (`huggingface-cli download`) before starting the server, so download time isn't mixed with startup time inside the 4h window.
+- **Model source**: takes a Hugging Face repo id (`VLLM_MODEL`), not an Ollama tag. The download is an explicit, timed step (`hf download` — see fix below) before starting the server, so download time isn't mixed with startup time inside the 4h window.
 - **Separate venv** (`.venv-vllm`): vLLM brings heavy, CUDA-specific dependencies; it was isolated from GuideLLM's venv to avoid conflicts.
 - **Config via vLLM's own flags** (`--tensor-parallel-size`, `--gpu-memory-utilization`, `--max-model-len`, `--max-num-seqs`, `--dtype`, `--quantization`), exposed as environment variables (`VLLM_*` in `.env.example`).
-- **No direct equivalent to `OLLAMA_NUM_PARALLEL`**: vLLM does continuous batching on its own; `VLLM_MAX_NUM_SEQS` is the closest thing, but it needs to be confirmed on the real unit whether it needs tuning or the default behavior is already good.
-- **Reuses vLLM's real health check** (`/health`), unlike Ollama which doesn't have one (hence `validate_backend=false` in GuideLLM) — to be confirmed whether that flag is still needed against vLLM.
+- **No direct equivalent to `OLLAMA_NUM_PARALLEL`**: vLLM does continuous batching on its own; `VLLM_MAX_NUM_SEQS` is the closest thing, but it still needs to be confirmed on the Brain unit whether it needs tuning or the default behavior is already good.
+- **Reuses vLLM's real health check** (`/health`), unlike Ollama which doesn't have one (hence `validate_backend=false` in GuideLLM).
 
-**Important**: since it couldn't be tested, it should be treated as a first draft to debug live, not as something validated — the same approach we took with GuideLLM's CLI, which turned out to differ from what its documentation showed.
+**Fixes needed on real hardware** (now handled automatically by the script, documented inline there too):
+1. `huggingface-cli` doesn't exist on current `huggingface_hub` versions (renamed to `hf`) — fixed by calling `hf download`.
+2. `python3 -m venv` can fail on a fresh Ubuntu box with "ensurepip is not available" — needs the separate `python3.<minor>-venv` apt package (the script's comments document the exact command; this one step needs `sudo` and was run by the server's own user, not by this script).
+3. **vLLM is pinned to `0.19.1`.** Versions 0.20.0+ ship a precompiled native extension statically linked against CUDA 13.0, which fails (`"NVIDIA driver on your system is too old"`, then `ImportError: libcudart.so.13`) on any driver older than ~570.x. Swapping only the Python-level `torch` package's CUDA build does **not** fix this, because vLLM's own compiled extension is independently linked — the whole package has to be pinned to a version built before the CUDA 13 default switch. `0.19.1` pulls in a CUDA-12.8-built torch, compatible with driver >=550.54 (covers this test server's 560.35 and most currently deployed drivers). Worth revisiting if the Brain unit ships a newer driver.
+4. **`CUDA_VISIBLE_DEVICES` normalization.** If that variable is already set in the shell/system environment using GPU UUIDs (as `nvidia-smi -L` also prints them, e.g. `GPU-28a2decb-...` — this test server had it set that way system-wide), vLLM 0.19.1 crashes with `ValueError: invalid literal for int() ... 'GPU-28a2decb-...'`, since it expects plain numeric indices (`0,1`). The script now detects this and normalizes it automatically.
+
+None of these are Brain-unit-specific — they're general vLLM/CUDA-driver and environment quirks, so they should carry over directly to the real hardware. What's still unconfirmed, because it depends on the specific unit: GPU count/`--tensor-parallel-size`, model size vs. VRAM, and whether `VLLM_MAX_NUM_SEQS` needs tuning.
 
 ## 9. Phase 0 — status and lessons from the smoke test (validated)
 

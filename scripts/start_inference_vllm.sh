@@ -3,13 +3,22 @@
 # (NVIDIA GPUs). Downloads the target model from Hugging Face, starts vLLM's
 # OpenAI-compatible server, and warms it up with a real request.
 #
-# UNTESTED: written without access to an NVIDIA GPU (this project's Phase 0
-# ran entirely on a Mac, where vLLM does not run). Flags below match the
-# vLLM CLI as documented at the time of writing - verify against
-# `vllm serve --help` on the actual machine before relying on this, the same
-# way GuideLLM's CLI turned out to differ from its docs (see PROJECT_PLAN.md
-# Sec. 9). Treat this as a first draft to debug on the real hardware, not a
-# validated script.
+# Validated end-to-end on a real NVIDIA test server (2x RTX 4070 SUPER,
+# driver 560.35.03 / CUDA 12.6, Ubuntu 24.04). Two fixes were needed to get
+# there, both handled automatically below:
+#   1. vLLM is pinned to 0.19.1. Versions 0.20.0+ ship a precompiled native
+#      extension statically linked against CUDA 13.0, which fails with
+#      "NVIDIA driver on your system is too old" / "libcudart.so.13: cannot
+#      open shared object file" on any driver older than ~570.x (CUDA 13).
+#      0.19.1 pulls in torch built against CUDA 12.8, which only needs
+#      driver >=550.54 - compatible with this and most currently deployed
+#      drivers. If the Brain hardware ships a newer driver, this pin can be
+#      revisited.
+#   2. CUDA_VISIBLE_DEVICES, if already set in the shell/system environment
+#      using GPU UUIDs (e.g. "GPU-28a2decb-...", which `nvidia-smi -L` also
+#      prints), crashes vLLM 0.19.1 with "ValueError: invalid literal for
+#      int() ... 'GPU-28a2decb-...'" - it expects plain numeric indices.
+#      This script normalizes it to numeric indices below.
 #
 # Required .env variables (see .env.example):
 #   VLLM_MODEL                 Hugging Face repo id (e.g. meta-llama/Llama-3.1-8B-Instruct)
@@ -44,6 +53,15 @@ VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
 VLLM_URL="http://localhost:${VLLM_PORT}"
 
+# Normalize CUDA_VISIBLE_DEVICES from GPU UUIDs (which some systems set by
+# default) to plain numeric indices - see fix #2 above.
+if [[ "${CUDA_VISIBLE_DEVICES:-}" == *"GPU-"* ]]; then
+  echo "==> CUDA_VISIBLE_DEVICES is set to GPU UUIDs; normalizing to numeric indices for vLLM compatibility."
+  NUM_GPUS="$(nvidia-smi -L | wc -l)"
+  CUDA_VISIBLE_DEVICES="$(seq -s, 0 $((NUM_GPUS - 1)))"
+  export CUDA_VISIBLE_DEVICES
+fi
+
 RESULTS_DIR="${PROJECT_ROOT}/results"
 LOG_FILE="${RESULTS_DIR}/vllm_server.log"
 PID_FILE="${RESULTS_DIR}/vllm_server.pid"
@@ -62,7 +80,7 @@ if [[ ! -d "${VENV_DIR}" ]]; then
   python3 -m venv "${VENV_DIR}"
   echo "==> Installing vLLM (this downloads a large CUDA-enabled build, can take several minutes)..."
   "${VENV_DIR}/bin/pip" install --upgrade pip
-  "${VENV_DIR}/bin/pip" install vllm huggingface_hub[cli]
+  "${VENV_DIR}/bin/pip" install "vllm==0.19.1" huggingface_hub[cli]
 else
   echo "==> Reusing existing vLLM virtual environment at ${VENV_DIR}."
 fi
