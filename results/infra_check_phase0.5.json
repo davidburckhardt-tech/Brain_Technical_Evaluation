@@ -1,0 +1,49 @@
+{
+  "platform": "Linux",
+  "hostname": "brainlab-01",
+  "os": {
+    "kernel": "Linux brainlab-01 6.8.0-59-generic #61-Ubuntu SMP PREEMPT_DYNAMIC Fri Apr 11 23:16:11 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux",
+    "distro": "Ubuntu 24.04.1 LTS"
+  },
+  "cpu": {
+    "model": "Intel(R) Core(TM) i9-14900K",
+    "logical_cpus": 32,
+    "sockets": "1",
+    "cores_per_socket": "24",
+    "threads_per_core": "2",
+    "max_mhz": "6000,0000"
+  },
+  "memory": {
+    "total_gb": 62.6
+  },
+  "disk": {
+    "total_gb": 2163.9,
+    "available_gb": 1419.7
+  },
+  "cuda_driver_version": "12.6",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 4070 SUPER",
+      "vram_total_mb": 12282.0,
+      "driver_version": "560.35.03",
+      "compute_capability": "8.9",
+      "fp32_tflops": 35.5,
+      "fp16_tensor_tflops": 141,
+      "memory_bandwidth_gbps": 504
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA GeForce RTX 4070 SUPER",
+      "vram_total_mb": 12282.0,
+      "driver_version": "560.35.03",
+      "compute_capability": "8.9",
+      "fp32_tflops": 35.5,
+      "fp16_tensor_tflops": 141,
+      "memory_bandwidth_gbps": 504
+    }
+  ],
+  "gpu_count": 2,
+  "phase": "phase0.5",
+  "checked_at": "2026-11-15T22:59:55.514077+00:00"
+}
