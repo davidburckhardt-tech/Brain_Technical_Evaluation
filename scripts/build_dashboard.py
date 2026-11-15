@@ -459,6 +459,7 @@ HTML_TEMPLATE = """<!doctype html>
   .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 14px; margin-bottom: 20px; }
   .chart-card canvas { max-height: 320px; }
   .run-select { margin-bottom: 10px; font-size: 12.5px; }
+  .run-select .chart-note { display: inline; margin-top: 0; margin-left: 10px; }
   select {
     background: var(--bg); color: var(--fg); border: 1px solid var(--border);
     border-radius: 4px; padding: 4px 8px; font-size: 12.5px; max-width: 100%;
@@ -701,7 +702,7 @@ function renderTest2(runs) {
   }
   html += '</tbody></table>';
 
-  html += '<div class="run-select">Run: <select id="t2RunSelect"></select></div>';
+  html += '<div class="run-select">Concurrent users: <select id="t2RunSelect"></select><span class="chart-note" id="t2TurnsNote"></span></div>';
   html += '<h3><span class="step-num">1</span>End-to-end latency per turn</h3>';
   html += '<div class="chart-card"><canvas id="t2LatencyChart"></canvas></div>';
   html += '<h3><span class="step-num">2</span>Context growth vs conversation turns</h3>';
@@ -719,10 +720,12 @@ function parallelismLabel(r) {
 function wireTest2Charts(runs) {
   const select = document.getElementById('t2RunSelect');
   if (!select) return;
-  select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.run_file} (${r.concurrent_users} users, ${r.turns_per_conversation ?? 1} turns)</option>`).join('');
+  select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.concurrent_users ?? '?'}</option>`).join('');
+  const turnsNote = document.getElementById('t2TurnsNote');
 
   const draw = () => {
     const r = runs[Number(select.value)];
+    if (turnsNote) turnsNote.textContent = `Each user conversation has ${r.turns_per_conversation ?? 1} iterations.`;
     const maxTurns = Math.max(1, ...r.users.map(u => u.turns.length));
 
     const perTurn = [];
