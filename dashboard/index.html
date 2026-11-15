@@ -254,7 +254,7 @@ function renderTest1(allRuns) {
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
   html += '<h3><span class="step-num">1</span>Request latency vs request number</h3>';
   if (runsWithDetail.length) {
-    html += '<div class="run-select">Run (concurrency level): <select id="t1RunSelect"></select></div>';
+    html += '<div class="run-select">Concurrent users: <select id="t1RunSelect"></select></div>';
     html += '<div class="chart-card"><canvas id="t1LatencyChart"></canvas></div>';
   } else {
     html += '<p class="empty">No per-request detail available for these runs (requires requests_detail.csv).</p>';
@@ -266,7 +266,7 @@ function renderTest1(allRuns) {
   html += '<h3><span class="step-num">3</span>Hardware utilization vs time</h3>';
   const runsWithResources = runs.filter(r => r.resource_usage && r.resource_usage.length);
   if (runsWithResources.length) {
-    html += '<div class="run-select">Run: <select id="t1HwRunSelect"></select></div>';
+    html += '<div class="run-select">Concurrent users: <select id="t1HwRunSelect"></select></div>';
     html += '<div class="chart-card"><canvas id="t1HwChart"></canvas></div>';
   } else {
     html += '<p class="empty">No resource_usage.csv found for these runs.</p>';
@@ -290,7 +290,7 @@ function wireTest1Charts(allRuns) {
   const runSelect = document.getElementById('t1RunSelect');
   if (runSelect) {
     runSelect.innerHTML = runsWithDetail.map((r, i) =>
-      `<option value="${i}">${r.strategy} @${r.concurrency ?? '?'} (${r.run_dir})</option>`).join('');
+      `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
     const draw = () => {
       const r = runsWithDetail[Number(runSelect.value)];
       const successful = r.requests_detail.filter(d => d.status === 'successful');
@@ -348,7 +348,7 @@ function wireTest1Charts(allRuns) {
   const hwSelect = document.getElementById('t1HwRunSelect');
   if (hwSelect) {
     hwSelect.innerHTML = runsWithResources.map((r, i) =>
-      `<option value="${i}">${r.strategy} @${r.concurrency ?? '?'} (${r.run_dir})</option>`).join('');
+      `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
     const draw = () => {
       const r = runsWithResources[Number(hwSelect.value)];
       const devices = [...new Set(r.resource_usage.map(d => d.device))];
@@ -519,7 +519,7 @@ function renderTest3(runs) {
   html += '<div class="chart-card"><canvas id="t3TopkChart"></canvas><div class="chart-note">Keyword and hybrid search: not implemented in this pipeline (vector-only) - shown as n/a.</div></div>';
 
   html += '<h3><span class="step-num">3</span>Token distribution per RAG request</h3>';
-  html += '<div class="run-select">Run: <select id="t3RunSelect"></select></div>';
+  html += '<div class="run-select">Concurrent users: <select id="t3RunSelect"></select></div>';
   html += '<div class="chart-card"><canvas id="t3TokensChart"></canvas></div>';
 
   return html;
@@ -562,7 +562,7 @@ function wireTest3Charts(runs) {
 
   const select = document.getElementById('t3RunSelect');
   if (select) {
-    select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.run_file}</option>`).join('');
+    select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
     const draw = () => {
       const r = runs[Number(select.value)];
       destroyChartById('t3TokensChart');
