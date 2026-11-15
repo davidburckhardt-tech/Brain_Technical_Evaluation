@@ -14,8 +14,9 @@ resolve_model_repo() {
   case "$1" in
     qwen-2.5-1.5b-instruct) echo "Qwen/Qwen2.5-1.5B-Instruct" ;;
     llama-3.2-1b-instruct) echo "meta-llama/Llama-3.2-1B-Instruct" ;;
+    smollm2-1.7b-instruct) echo "HuggingFaceTB/SmolLM2-1.7B-Instruct" ;;
     *)
-      echo "Error: unknown --model '$1'. Supported: qwen-2.5-1.5b-instruct, llama-3.2-1b-instruct" >&2
+      echo "Error: unknown --model '$1'. Supported: qwen-2.5-1.5b-instruct, llama-3.2-1b-instruct, smollm2-1.7b-instruct" >&2
       return 1
       ;;
   esac
