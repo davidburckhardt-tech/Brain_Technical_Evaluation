@@ -18,7 +18,7 @@ VENV_DIR="${PROJECT_ROOT}/.venv"
 # shellcheck disable=SC1091
 source "${PROJECT_ROOT}/scripts/lib_model.sh"
 parse_model_flag "$@"
-set -- "${PARSED_ARGS[@]}"
+set -- ${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}
 
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090

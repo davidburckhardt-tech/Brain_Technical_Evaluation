@@ -62,7 +62,7 @@ VENV_DIR="${PROJECT_ROOT}/.venv-vllm"
 # shellcheck disable=SC1091
 source "${PROJECT_ROOT}/scripts/lib_model.sh"
 parse_model_flag "$@"
-set -- "${PARSED_ARGS[@]}"
+set -- ${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}
 
 # Preserve a VLLM_MODEL already exported into this shell (e.g. by a caller
 # script) - otherwise `source .env` below unconditionally overwrites it with
