@@ -333,6 +333,7 @@ HTML_TEMPLATE = """<!doctype html>
     --test2-bg: #e9f8f1;
     --test3: #8a3fd1;
     --test3-bg: #f4edfc;
+    --warn: #c97a1a;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -352,6 +353,7 @@ HTML_TEMPLATE = """<!doctype html>
       --test2-bg: #122a22;
       --test3: #c09bff;
       --test3-bg: #241c33;
+      --warn: #e8a33d;
     }
   }
   :root[data-theme="dark"] {
@@ -371,6 +373,7 @@ HTML_TEMPLATE = """<!doctype html>
     --test2-bg: #122a22;
     --test3: #c09bff;
     --test3-bg: #241c33;
+    --warn: #e8a33d;
   }
   * { box-sizing: border-box; }
   body {
@@ -449,12 +452,20 @@ HTML_TEMPLATE = """<!doctype html>
   thead, tbody { display: table; width: 100%; table-layout: fixed; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
-  .bars { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
-  .bar-row { display: flex; align-items: center; gap: 8px; }
-  .bar-label { width: 150px; flex-shrink: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-track { flex: 1; background: var(--bar-bg); border-radius: 4px; height: 18px; position: relative; min-width: 60px; }
-  .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
-  .bar-value { position: absolute; left: 8px; top: 0; height: 100%; display: flex; align-items: center; font-size: 11px; color: var(--fg); white-space: nowrap; }
+  .bar-chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 16px 18px; margin-bottom: 20px; }
+  .bar-chart-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .bar-chart-title { font-size: 15px; font-weight: 700; }
+  .bar-chart-unit { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--bar-bg); color: var(--accent); flex-shrink: 0; }
+  .bar-chart-subtitle { font-size: 12px; color: var(--muted); margin: 2px 0 14px; }
+  .bars { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; }
+  .bar-label { min-width: 48px; flex-shrink: 0; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; background: var(--bar-bg); border-radius: 4px; height: 20px; position: relative; min-width: 40px; }
+  .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; min-width: 6px; }
+  .bar-fill.highlight { background: var(--warn); }
+  .bar-value { width: 76px; flex-shrink: 0; text-align: right; font-size: 13.5px; color: var(--fg); white-space: nowrap; }
+  .bar-value.highlight { color: var(--warn); font-weight: 700; }
+  .bar-chart-caption { font-size: 11.5px; color: var(--muted); margin-top: 12px; }
   .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
   .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 14px; margin-bottom: 20px; }
   .chart-card canvas { max-height: 320px; }
@@ -541,18 +552,31 @@ function makeChart(canvasId, config) {
   return chart;
 }
 
-function barChart(rows, labelFn, valueFn, unit) {
-  const maxVal = Math.max(...rows.map(valueFn).filter(v => v !== null && v !== undefined), 0.001);
-  let html = '<div class="bars">';
-  for (const row of rows) {
-    const v = valueFn(row);
+// A titled card around a plain horizontal-bar list: label left, bar,
+// value right. The single highest value is called out in the warn color
+// rather than accent - just a visual "this one stands out", not a verdict
+// on good/bad (e.g. TTFT climbing with concurrency is expected, not a
+// regression), so the caption never says "lower/higher is better".
+function barChart(rows, labelFn, valueFn, opts) {
+  const { title, subtitle, unit = '', caption, digits = 2 } = opts;
+  const values = rows.map(valueFn);
+  const maxVal = Math.max(...values.filter(v => v !== null && v !== undefined), 0.001);
+  let html = `<div class="bar-chart-card">
+    <div class="bar-chart-header"><div class="bar-chart-title">${title}</div>${unit ? `<div class="bar-chart-unit">${unit}</div>` : ''}</div>
+    ${subtitle ? `<div class="bar-chart-subtitle">${subtitle}</div>` : ''}
+    <div class="bars">`;
+  for (let i = 0; i < rows.length; i++) {
+    const v = values[i];
     const pctw = v === null || v === undefined ? 0 : Math.max((v / maxVal) * 100, 2);
+    const isMax = v !== null && v !== undefined && v === maxVal;
     html += `<div class="bar-row">
-      <div class="bar-label">${labelFn(row)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pctw}%"></div>
-        <div class="bar-value">${fmt(v)}${unit}</div></div>
+      <div class="bar-label">${labelFn(rows[i])}</div>
+      <div class="bar-track"><div class="bar-fill${isMax ? ' highlight' : ''}" style="width:${pctw}%"></div></div>
+      <div class="bar-value${isMax ? ' highlight' : ''}">${fmt(v, digits)}</div>
     </div>`;
   }
+  html += '</div>';
+  if (caption) html += `<div class="bar-chart-caption">${caption}</div>`;
   return html + '</div>';
 }
 
@@ -585,7 +609,9 @@ function renderTest1(allRuns) {
     ]);
   }
   html += '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
-  html += barChart(runs, r => `${r.strategy}${r.concurrency ? ' @' + r.concurrency : ''}`, r => r.ttft_ms_mean, ' ms TTFT');
+  html += barChart(runs, r => (r.concurrency != null ? `${r.concurrency}x` : r.strategy), r => r.ttft_ms_mean, {
+    title: 'TTFT by concurrency', subtitle: 'Synthetic load &middot; GuideLLM', unit: 'ms', caption: 'Values represent mean TTFT.',
+  });
   html += '<table><thead><tr><th>Strategy</th><th>Concurrency</th><th>Duration (s)</th><th>Mean TTFT (ms)</th><th>Mean TPOT (ms)</th><th>Latency/req (s)</th><th>Output tok/s</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
     html += `<tr><td>${r.strategy ?? '-'}</td><td>${r.concurrency ?? '-'}</td><td>${fmt(r.duration_s)}</td>
@@ -767,7 +793,9 @@ function renderTest2(runs) {
     ]);
   }
   html += '<div class="test-note">Simulated concurrent users (general, code, summary, knowledge), each running a conversation of 1+ turns, against the inference server directly.</div>';
-  html += barChart(runs, r => parallelismLabel(r), r => r.overall_duration_s, ' s total');
+  html += barChart(runs, r => `${r.concurrent_users ?? '?'}u`, r => r.overall_duration_s, {
+    title: 'Total duration by concurrent users', subtitle: 'Simulated chatbot workload', unit: 's', caption: 'Values represent total wall-clock duration for the run.',
+  });
   html += '<table><thead><tr><th>Target</th><th>Parallelism setting</th><th>Users</th><th>Turns/conv.</th><th>Total duration (s)</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
     html += `<tr><td>${r.target ?? '-'}</td><td>${parallelismLabel(r)}</td><td>${r.concurrent_users ?? '-'}</td>
@@ -888,7 +916,9 @@ function renderTest3(runs) {
     ]);
   }
   html += '<div class="test-note">Retrieval (Qdrant + nomic-embed-text) + generation, over the Kubernetes docs corpus. No reranking or keyword/hybrid search stage exists in this pipeline (vector-only) - charts below mark those as n/a rather than fabricating a value.</div>';
-  html += barChart(runs, r => `q${r.num_queries} c${r.concurrency}`, r => r.wall_duration_s, ' s wall-clock');
+  html += barChart(runs, r => `q${r.num_queries}/c${r.concurrency}`, r => r.wall_duration_s, {
+    title: 'Wall-clock time by scale', subtitle: 'RAG pipeline &middot; retrieval + generation', unit: 's', caption: 'Values represent total wall-clock duration (q = queries, c = concurrency).',
+  });
   html += '<table><thead><tr><th>Queries</th><th>Concurrency</th><th>Top-K</th><th>Wall-clock (s)</th><th>Mean retrieval (s)</th><th>Mean generation (s)</th><th>Tokens in/out</th><th>Avg similarity</th><th>Error rate</th><th>Hit rate top-k</th></tr></thead><tbody>';
   for (const r of runs) {
     html += `<tr><td>${r.num_queries ?? '-'}</td><td>${r.concurrency ?? '-'}</td><td>${r.top_k ?? '-'}</td><td>${fmt(r.wall_duration_s)}</td>
