@@ -29,8 +29,22 @@ NGROK_LOG="${LOG_DIR}/dashboard_ngrok.log"
 mkdir -p "${LOG_DIR}"
 
 if ! command -v ngrok >/dev/null 2>&1; then
-  echo "Error: ngrok is not installed. Install it with 'brew install ngrok', then" >&2
-  echo "run 'ngrok config add-authtoken <token>' once (free account at https://ngrok.com)." >&2
+  echo "Error: ngrok is not installed. Install it with 'brew install ngrok' (macOS) or" >&2
+  echo "see https://ngrok.com/download (Linux/other), then run 'ngrok config add-authtoken" >&2
+  echo "<token>' once (free account at https://dashboard.ngrok.com/get-started/your-authtoken)." >&2
+  exit 1
+fi
+
+# `command -v` only proves the binary exists - a missing/invalid authtoken is a
+# separate, very common failure mode (fresh install, or installed on a
+# different machine than where it was authenticated) that otherwise only
+# surfaces after waiting up to 30s below for a public URL that never comes.
+# `ngrok config check` validates the config file (including the authtoken)
+# without starting anything, so this fails fast with a clear fix instead.
+if ! ngrok config check >/dev/null 2>&1; then
+  echo "Error: ngrok is installed but not configured (no valid authtoken)." >&2
+  echo "Run 'ngrok config add-authtoken <token>' once - free token at" >&2
+  echo "https://dashboard.ngrok.com/get-started/your-authtoken" >&2
   exit 1
 fi
 
