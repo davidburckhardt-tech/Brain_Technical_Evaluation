@@ -67,6 +67,24 @@ def read_vllm_metrics(path: Path) -> list[dict]:
     return rows
 
 
+def infer_gpu_count(resource_usage_rows: list[dict]) -> int | None:
+    """How many GPUs vLLM was actually tensor-parallel across for this run,
+    not how many the monitor sampled - monitor_resources.py always samples
+    every physical GPU on the box, so in 1-GPU (TP=1) mode gpu1 still shows
+    up in the CSV but sits idle (~18MB, just the driver's baseline). A GPU
+    only counts as "active" if its mean memory usage is well above that."""
+    gpu_mem = {}
+    for row in resource_usage_rows:
+        dev = row.get("device")
+        if not dev or not dev.startswith("gpu"):
+            continue
+        gpu_mem.setdefault(dev, []).append(row.get("memory_used_mb") or 0)
+    if not gpu_mem:
+        return None
+    active = [dev for dev, vals in gpu_mem.items() if vals and (sum(vals) / len(vals)) > 500]
+    return len(active) if active else 1
+
+
 def collect_test1_runs() -> list[dict]:
     runs = []
     for benchmarks_json in sorted(RESULTS_DIR.glob("*/*/benchmarks.json")):
@@ -96,11 +114,13 @@ def collect_test1_runs() -> list[dict]:
                     "ttft_ms": _float(row.get("ttft_ms")),
                 })
 
+            resource_usage = read_resource_usage(run_dir / "resource_usage.csv")
             runs.append({
                 "run_dir": run_dir.name,
                 "model": model,
                 "strategy": strategy.get("type_"),
                 "concurrency": concurrency,
+                "gpu_count": infer_gpu_count(resource_usage),
                 "duration_s": benchmark.get("duration"),
                 "ttft_ms_mean": stat("time_to_first_token_ms"),
                 "tpot_ms_mean": stat("time_per_output_token_ms"),
@@ -115,7 +135,7 @@ def collect_test1_runs() -> list[dict]:
                     else None
                 ),
                 "requests_detail": requests_detail,
-                "resource_usage": read_resource_usage(run_dir / "resource_usage.csv"),
+                "resource_usage": resource_usage,
                 "vllm_metrics": read_vllm_metrics(run_dir / "vllm_metrics.csv"),
             })
     return runs
@@ -358,6 +378,16 @@ HTML_TEMPLATE = """<!doctype html>
   .test-panel[data-test="test1"] h2 .test-badge { background: var(--test1); }
   .test-panel[data-test="test2"] h2 .test-badge { background: var(--test2); }
   .test-panel[data-test="test3"] h2 .test-badge { background: var(--test3); }
+  /* Within Test 1, a second-level toggle for 1-GPU vs 2-GPU (tensor-parallel)
+     runs - visually smaller/subordinate to the big test-tabs above so it
+     reads as "a view on Test 1", not another top-level section. */
+  .gpu-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .gpu-tab {
+    padding: 6px 16px; border-radius: 999px; border: 1.5px solid var(--border);
+    background: var(--card-bg); color: var(--muted); font-size: 13px; font-weight: 600;
+    cursor: pointer;
+  }
+  .gpu-tab[aria-selected="true"] { background: var(--test1); border-color: var(--test1); color: #fff; }
   h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
   h3 .step-num {
     display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
@@ -449,9 +479,23 @@ function barChart(rows, labelFn, valueFn, unit) {
 
 // ---------- Test 1: Hardware / Model Serving ----------
 
-function renderTest1(runs) {
-  if (!runs.length) return '<p class="empty">No Test 1 data for this model.</p>';
-  let html = '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
+function gpuTabsHtml(allRuns) {
+  const gpuCounts = [...new Set(allRuns.map(r => r.gpu_count).filter(v => v != null))].sort((a, b) => a - b);
+  if (gpuCounts.length === 0) return { gpuCounts, html: '' };
+  if (currentGpuMode == null || !gpuCounts.includes(currentGpuMode)) currentGpuMode = gpuCounts[0];
+  if (gpuCounts.length < 2) return { gpuCounts, html: '' };
+  const html = '<div class="gpu-tabs">' + gpuCounts.map(c =>
+    `<button class="gpu-tab" data-gpu="${c}" aria-selected="${c === currentGpuMode}">${c} GPU${c > 1 ? 's' : ''} (tensor-parallel=${c})</button>`
+  ).join('') + '</div>';
+  return { gpuCounts, html };
+}
+
+function renderTest1(allRuns) {
+  if (!allRuns.length) return '<p class="empty">No Test 1 data for this model.</p>';
+  const { gpuCounts, html: gpuTabs } = gpuTabsHtml(allRuns);
+  const runs = gpuCounts.length ? allRuns.filter(r => r.gpu_count === currentGpuMode) : allRuns;
+  if (!runs.length) return gpuTabs + '<p class="empty">No Test 1 data for this GPU mode.</p>';
+  let html = gpuTabs + '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
   html += barChart(runs, r => `${r.strategy}${r.concurrency ? ' @' + r.concurrency : ''}`, r => r.ttft_ms_mean, ' ms TTFT');
   html += '<table><thead><tr><th>Strategy</th><th>Concurrency</th><th>Duration (s)</th><th>Mean TTFT (ms)</th><th>Mean TPOT (ms)</th><th>Latency/req (s)</th><th>Output tok/s</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
@@ -485,7 +529,17 @@ function renderTest1(runs) {
   return html;
 }
 
-function wireTest1Charts(runs) {
+function wireTest1Charts(allRuns) {
+  document.querySelectorAll('#testPanel .gpu-tab').forEach(btn => {
+    btn.onclick = () => {
+      currentGpuMode = Number(btn.getAttribute('data-gpu'));
+      renderTestPanel();
+    };
+  });
+  const gpuCounts = [...new Set(allRuns.map(r => r.gpu_count).filter(v => v != null))];
+  const runs = gpuCounts.length ? allRuns.filter(r => r.gpu_count === currentGpuMode) : allRuns;
+  if (!runs.length) return;
+
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
   const runSelect = document.getElementById('t1RunSelect');
   if (runSelect) {
@@ -791,6 +845,7 @@ const TEST_META = {
 
 let currentModel = null;
 let currentTest = 'test1';
+let currentGpuMode = null; // Test 1 sub-tab: 1 GPU vs 2 GPU (tensor-parallel)
 
 function renderTestPanel() {
   const d = DATA[currentModel];
