@@ -266,6 +266,12 @@ HTML_TEMPLATE = """<!doctype html>
     --accent4: #9b6fd6;
     --bar-bg: #eef2fb;
     --card-bg: #f7f8fa;
+    --test1: #3b6fd6;
+    --test1-bg: #eef3fd;
+    --test2: #0f9d6b;
+    --test2-bg: #e9f8f1;
+    --test3: #8a3fd1;
+    --test3-bg: #f4edfc;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -279,6 +285,12 @@ HTML_TEMPLATE = """<!doctype html>
       --accent4: #c09bff;
       --bar-bg: #202636;
       --card-bg: #1b1f26;
+      --test1: #6d9bff;
+      --test1-bg: #182236;
+      --test2: #3fd6a0;
+      --test2-bg: #122a22;
+      --test3: #c09bff;
+      --test3-bg: #241c33;
     }
   }
   :root[data-theme="dark"] {
@@ -292,6 +304,12 @@ HTML_TEMPLATE = """<!doctype html>
     --accent4: #c09bff;
     --bar-bg: #202636;
     --card-bg: #1b1f26;
+    --test1: #6d9bff;
+    --test1-bg: #182236;
+    --test2: #3fd6a0;
+    --test2-bg: #122a22;
+    --test3: #c09bff;
+    --test3-bg: #241c33;
   }
   * { box-sizing: border-box; }
   body {
@@ -303,16 +321,48 @@ HTML_TEMPLATE = """<!doctype html>
   }
   main { max-width: 1040px; margin: 0 auto; }
   h1 { font-size: 20px; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 13px; }
-  .model-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 13px; }
+  .model-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
   .model-tab {
     padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px;
     cursor: pointer; background: transparent; color: var(--fg); font-size: 13px;
   }
   .model-tab[aria-selected="true"] { background: var(--accent); color: white; border-color: var(--accent); }
+
+  /* Test-level tabs: one big, unmistakably color-coded control per test, so
+     switching between Test 1/2/3 reads as switching sections, not just
+     changing a filter - each test keeps its color everywhere below (the
+     active-tab fill, the panel's top border and badge, the section note). */
+  .test-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+  .test-tab {
+    text-align: left; cursor: pointer; border: 2px solid var(--border); border-radius: 12px;
+    background: var(--card-bg); color: var(--fg); padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .test-tab .test-tab-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 700; }
+  .test-tab .test-tab-title { font-size: 14px; font-weight: 600; }
+  .test-tab[data-test="test1"][aria-selected="true"] { border-color: var(--test1); background: var(--test1-bg); }
+  .test-tab[data-test="test2"][aria-selected="true"] { border-color: var(--test2); background: var(--test2-bg); }
+  .test-tab[data-test="test3"][aria-selected="true"] { border-color: var(--test3); background: var(--test3-bg); }
+  .test-tab[data-test="test1"][aria-selected="true"] .test-tab-label { color: var(--test1); }
+  .test-tab[data-test="test2"][aria-selected="true"] .test-tab-label { color: var(--test2); }
+  .test-tab[data-test="test3"][aria-selected="true"] .test-tab-label { color: var(--test3); }
+
+  .test-panel { border-top: 4px solid var(--border); border-radius: 0 0 12px 12px; padding: 20px 0 4px; }
+  .test-panel[data-test="test1"] { border-top-color: var(--test1); }
+  .test-panel[data-test="test2"] { border-top-color: var(--test2); }
+  .test-panel[data-test="test3"] { border-top-color: var(--test3); }
   section { margin-bottom: 36px; }
-  h2 { font-size: 16px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+  h2 .test-badge { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+  .test-panel[data-test="test1"] h2 .test-badge { background: var(--test1); }
+  .test-panel[data-test="test2"] h2 .test-badge { background: var(--test2); }
+  .test-panel[data-test="test3"] h2 .test-badge { background: var(--test3); }
   h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+  h3 .step-num {
+    display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--bar-bg); color: var(--fg); font-size: 10.5px; margin-right: 6px;
+  }
   .test-note { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
   .chart-note { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 16px; overflow-x: auto; display: block; }
@@ -345,7 +395,8 @@ HTML_TEMPLATE = """<!doctype html>
 
   <div class="model-tabs" id="modelTabs"></div>
 
-  <div id="modelContent"></div>
+  <div class="test-tabs" id="testTabs"></div>
+  <div class="test-panel" id="testPanel"></div>
 </main>
 
 <script>
@@ -411,7 +462,7 @@ function renderTest1(runs) {
   html += '</tbody></table>';
 
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
-  html += '<h3>1. Request latency vs request number</h3>';
+  html += '<h3><span class="step-num">1</span>Request latency vs request number</h3>';
   if (runsWithDetail.length) {
     html += '<div class="run-select">Run (concurrency level): <select id="t1RunSelect"></select></div>';
     html += '<div class="chart-card"><canvas id="t1LatencyChart"></canvas></div>';
@@ -419,10 +470,10 @@ function renderTest1(runs) {
     html += '<p class="empty">No per-request detail available for these runs (requires requests_detail.csv).</p>';
   }
 
-  html += '<h3>2. Throughput vs concurrency</h3>';
+  html += '<h3><span class="step-num">2</span>Throughput vs concurrency</h3>';
   html += '<div class="chart-card"><canvas id="t1ThroughputChart"></canvas><div class="chart-note" id="t1SaturationNote"></div></div>';
 
-  html += '<h3>3. Hardware utilization vs time</h3>';
+  html += '<h3><span class="step-num">3</span>Hardware utilization vs time</h3>';
   const runsWithResources = runs.filter(r => r.resource_usage && r.resource_usage.length);
   if (runsWithResources.length) {
     html += '<div class="run-select">Run: <select id="t1HwRunSelect"></select></div>';
@@ -545,11 +596,11 @@ function renderTest2(runs) {
   html += '</tbody></table>';
 
   html += '<div class="run-select">Run: <select id="t2RunSelect"></select></div>';
-  html += '<h3>1. End-to-end latency per turn</h3>';
+  html += '<h3><span class="step-num">1</span>End-to-end latency per turn</h3>';
   html += '<div class="chart-card"><canvas id="t2LatencyChart"></canvas></div>';
-  html += '<h3>2. Context growth vs conversation turns</h3>';
+  html += '<h3><span class="step-num">2</span>Context growth vs conversation turns</h3>';
   html += '<div class="chart-card"><canvas id="t2ContextChart"></canvas></div>';
-  html += '<h3>3. Latency distribution (all turns in this run)</h3>';
+  html += '<h3><span class="step-num">3</span>Latency distribution (all turns in this run)</h3>';
   html += '<div class="chart-card"><canvas id="t2DistChart"></canvas><div class="stat-row" id="t2DistStats"></div></div>';
 
   return html;
@@ -659,13 +710,13 @@ function renderTest3(runs) {
   }
   html += '</tbody></table>';
 
-  html += '<h3>1. RAG pipeline latency breakdown</h3>';
+  html += '<h3><span class="step-num">1</span>RAG pipeline latency breakdown</h3>';
   html += '<div class="chart-card"><canvas id="t3BreakdownChart"></canvas><div class="chart-note">Reranking: not implemented in this pipeline (n/a, not estimated).</div></div>';
 
-  html += '<h3>2. Retrieval performance vs top-K</h3>';
+  html += '<h3><span class="step-num">2</span>Retrieval performance vs top-K</h3>';
   html += '<div class="chart-card"><canvas id="t3TopkChart"></canvas><div class="chart-note">Keyword and hybrid search: not implemented in this pipeline (vector-only) - shown as n/a.</div></div>';
 
-  html += '<h3>3. Token distribution per RAG request</h3>';
+  html += '<h3><span class="step-num">3</span>Token distribution per RAG request</h3>';
   html += '<div class="run-select">Run: <select id="t3RunSelect"></select></div>';
   html += '<div class="chart-card"><canvas id="t3TokensChart"></canvas></div>';
 
@@ -732,18 +783,49 @@ function wireTest3Charts(runs) {
   }
 }
 
-function renderModel(model) {
-  const d = DATA[model];
+const TEST_META = {
+  test1: { label: 'Test 1', title: 'Hardware / Serving', heading: 'Test 1 — Raw inference performance', render: renderTest1, wire: wireTest1Charts },
+  test2: { label: 'Test 2', title: 'Chatbot', heading: 'Test 2 — Concurrent chatbot', render: renderTest2, wire: wireTest2Charts },
+  test3: { label: 'Test 3', title: 'RAG', heading: 'Test 3 — RAG', render: renderTest3, wire: wireTest3Charts },
+};
+
+let currentModel = null;
+let currentTest = 'test1';
+
+function renderTestPanel() {
+  const d = DATA[currentModel];
   destroyCharts();
-  const container = document.getElementById('modelContent');
-  container.innerHTML = `
-    <section><h2>Test 1 - Raw inference performance</h2>${renderTest1(d.test1)}</section>
-    <section><h2>Test 2 - Concurrent chatbot</h2>${renderTest2(d.test2)}</section>
-    <section><h2>Test 3 - RAG</h2>${renderTest3(d.test3)}</section>
-  `;
-  if (d.test1.length) wireTest1Charts(d.test1);
-  if (d.test2.length) wireTest2Charts(d.test2);
-  if (d.test3.length) wireTest3Charts(d.test3);
+  const meta = TEST_META[currentTest];
+  const runs = d[currentTest];
+  const panel = document.getElementById('testPanel');
+  panel.setAttribute('data-test', currentTest);
+  panel.innerHTML = `<section><h2><span class="test-badge"></span>${meta.heading}</h2>${meta.render(runs)}</section>`;
+  if (runs.length) meta.wire(runs);
+}
+
+function renderTestTabs() {
+  const bar = document.getElementById('testTabs');
+  bar.innerHTML = '';
+  for (const key of Object.keys(TEST_META)) {
+    const meta = TEST_META[key];
+    const btn = document.createElement('button');
+    btn.className = 'test-tab';
+    btn.setAttribute('data-test', key);
+    btn.setAttribute('aria-selected', key === currentTest ? 'true' : 'false');
+    btn.innerHTML = `<span class="test-tab-label">${meta.label}</span><span class="test-tab-title">${meta.title}</span>`;
+    btn.onclick = () => {
+      currentTest = key;
+      bar.querySelectorAll('.test-tab').forEach(b => b.setAttribute('aria-selected', String(b.getAttribute('data-test') === key)));
+      renderTestPanel();
+    };
+    bar.appendChild(btn);
+  }
+}
+
+function renderModel(model) {
+  currentModel = model;
+  renderTestTabs();
+  renderTestPanel();
 }
 
 function init() {
