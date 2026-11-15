@@ -20,6 +20,12 @@ token counts (input/output, from the API's own `usage` field - not the
 previous word-count approximation), cumulative input/output tokens for the
 conversation so far, and context window utilization if --max-context-tokens
 is given. A JSON summary is written at the end for comparison across runs.
+
+If a turn's growing history no longer fits the model's actual context
+window (vLLM's "maximum context length" 400), the oldest (user, assistant)
+pair is dropped and the turn retried - like a real chat client's sliding
+window - rather than failing the whole conversation. `history_turns_trimmed`
+on each turn records how many pairs were dropped for it.
 """
 
 import argparse
@@ -57,6 +63,16 @@ def load_prompts(path: Path) -> list[dict]:
     return prompts
 
 
+class ContextLengthExceeded(Exception):
+    """The server rejected a turn because the conversation history (plus the
+    new message) no longer fits the model's actual context window. Raised
+    instead of a plain HTTPStatusError so run_conversation can tell this
+    apart from a real failure (OOM, timeout, ...) and recover from it by
+    trimming history, the way a real chat client would - rather than
+    hardcoding each model's context limit (which depends on how vLLM was
+    started, not just the model's architecture)."""
+
+
 def classify_error(exc: Exception) -> str:
     """Best-effort label for why a request failed, so a failure due to the
     server running out of memory reads differently from a plain timeout or
@@ -67,7 +83,10 @@ def classify_error(exc: Exception) -> str:
     if isinstance(exc, httpx.TimeoutException):
         return "timeout"
     if isinstance(exc, httpx.HTTPStatusError):
-        body = exc.response.text.lower()
+        try:
+            body = exc.response.text.lower()
+        except httpx.ResponseNotRead:
+            body = ""
         if "out of memory" in body or "cuda oom" in body or "memory" in body:
             return f"http_{exc.response.status_code}_possible_oom"
         return f"http_{exc.response.status_code}"
@@ -95,7 +114,20 @@ async def run_turn(
     }
 
     async with client.stream("POST", f"{target}/v1/chat/completions", json=payload) as response:
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # Read the streamed body before it's lost when the `async with`
+            # block exits - classify_error() needs exc.response.text to tell
+            # an OOM apart from any other 400/500, and accessing .text on an
+            # unread streaming response raises httpx.ResponseNotRead, which
+            # was escaping run_conversation's except block entirely and
+            # crashing the whole asyncio.gather (losing every other
+            # concurrent user's results, not just this one's).
+            await response.aread()
+            if response.status_code == 400 and "maximum context length" in response.text.lower():
+                raise ContextLengthExceeded() from exc
+            raise
         async for line in response.aiter_lines():
             if not line or not line.startswith("data: "):
                 continue
@@ -169,9 +201,24 @@ async def run_conversation(
             user_input_tokens_approx = len(user_message.split())
             messages.append({"role": "user", "content": user_message})
 
-            assistant_text, turn_metrics = await run_turn(
-                client, target, model, messages, user_id, turn_id, print_lock, quiet
-            )
+            history_turns_trimmed = 0
+            while True:
+                try:
+                    assistant_text, turn_metrics = await run_turn(
+                        client, target, model, messages, user_id, turn_id, print_lock, quiet
+                    )
+                    break
+                except ContextLengthExceeded:
+                    # Drop the oldest (user, assistant) pair and retry - the
+                    # same recovery a real chat client does when history no
+                    # longer fits the model's context window, instead of
+                    # hardcoding a per-model token budget. messages[0:2] is
+                    # always an earlier turn's pair, since this turn's own
+                    # user message was just appended last.
+                    if len(messages) <= 2:
+                        raise
+                    del messages[0:2]
+                    history_turns_trimmed += 1
             messages.append({"role": "assistant", "content": assistant_text})
 
             cumulative_output_tokens += turn_metrics["output_tokens"] or 0
@@ -183,6 +230,7 @@ async def run_conversation(
             turn_metrics["user_input_tokens_approx"] = user_input_tokens_approx
             turn_metrics["cumulative_input_tokens_approx"] = cumulative_input_tokens
             turn_metrics["cumulative_output_tokens"] = cumulative_output_tokens
+            turn_metrics["history_turns_trimmed"] = history_turns_trimmed
             turn_metrics["context_window_utilization"] = (
                 turn_metrics["context_tokens"] / max_context_tokens
                 if turn_metrics["context_tokens"] is not None and max_context_tokens
@@ -206,6 +254,7 @@ async def run_conversation(
             "user_input_tokens_approx": None,
             "cumulative_input_tokens_approx": cumulative_input_tokens,
             "cumulative_output_tokens": cumulative_output_tokens,
+            "history_turns_trimmed": None,
             "context_window_utilization": None,
         })
 
