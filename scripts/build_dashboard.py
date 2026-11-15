@@ -608,7 +608,7 @@ function renderTest1(allRuns) {
       overviewTile('Mean TPOT', fmt(maxConcurrencyRun.tpot_ms_mean, 2), 'ms'),
     ]);
   }
-  html += '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
+  html += '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = number of simultaneous users/requests sent at once (fixed, not auto-scaled).</div>';
   html += barChart(runs, r => (r.concurrency != null ? `${r.concurrency}x` : r.strategy), r => r.ttft_ms_mean, {
     title: 'TTFT by concurrency', subtitle: 'Synthetic load &middot; GuideLLM', unit: 'ms', caption: 'Values represent mean TTFT.',
   });
