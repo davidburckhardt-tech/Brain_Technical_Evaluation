@@ -841,10 +841,7 @@ function renderTest3(runs) {
   html += '<h3><span class="step-num">1</span>RAG pipeline latency breakdown</h3>';
   html += '<div class="chart-card"><canvas id="t3BreakdownChart"></canvas><div class="chart-note">Reranking: not implemented in this pipeline (n/a, not estimated).</div></div>';
 
-  html += '<h3><span class="step-num">2</span>Retrieval performance vs top-K</h3>';
-  html += '<div class="chart-card"><canvas id="t3TopkChart"></canvas><div class="chart-note">Keyword and hybrid search: not implemented in this pipeline (vector-only) - shown as n/a.</div></div>';
-
-  html += '<h3><span class="step-num">3</span>Token distribution per RAG request</h3>';
+  html += '<h3><span class="step-num">2</span>Token distribution per RAG request</h3>';
   html += '<div class="run-select">Concurrent users: <select id="t3RunSelect"></select></div>';
   html += '<div class="chart-card"><canvas id="t3TokensChart"></canvas></div>';
 
@@ -864,26 +861,6 @@ function wireTest3Charts(runs) {
       ],
     },
     options: { responsive: true, scales: { x: { stacked: true, title: { display: true, text: 'Run (scale)' } }, y: { stacked: true, title: { display: true, text: 'Avg time (s)' } } } },
-  });
-
-  const byTopK = {};
-  for (const r of runs) {
-    const k = r.top_k ?? '?';
-    if (!byTopK[k]) byTopK[k] = [];
-    if (r.avg_retrieval_s != null) byTopK[k].push(r.avg_retrieval_s);
-  }
-  const topKs = Object.keys(byTopK).sort((a, b) => Number(a) - Number(b));
-  makeChart('t3TopkChart', {
-    type: 'bar',
-    data: {
-      labels: topKs.map(k => `top-${k}`),
-      datasets: [
-        { label: 'Vector search (retrieval, s)', data: topKs.map(k => { const v = byTopK[k]; return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }), backgroundColor: CHART_COLORS.accent },
-        { label: 'Keyword search (n/a)', data: topKs.map(() => null), backgroundColor: CHART_COLORS.muted },
-        { label: 'Hybrid search (n/a)', data: topKs.map(() => null), backgroundColor: CHART_COLORS.border },
-      ],
-    },
-    options: { responsive: true, scales: { x: { title: { display: true, text: 'Top-K' } }, y: { title: { display: true, text: 'Avg retrieval latency (s)' } } } },
   });
 
   const select = document.getElementById('t3RunSelect');
