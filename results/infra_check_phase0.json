@@ -1,0 +1,31 @@
+{
+  "platform": "Darwin",
+  "hostname": "Davids-MacBook-Pro.local",
+  "os": {
+    "name": "macOS",
+    "version": "26.5.2",
+    "build": "25F84"
+  },
+  "cpu": {
+    "model": "Apple M1 Pro",
+    "physical_cpus": 10,
+    "logical_cpus": 10
+  },
+  "memory": {
+    "total_gb": 17.2
+  },
+  "disk": {
+    "total_gb": 926.0,
+    "available_gb": 29.0
+  },
+  "cuda_driver_version": null,
+  "gpus": [
+    {
+      "name": "Apple M1 Pro",
+      "gpu_cores": 16
+    }
+  ],
+  "gpu_count": null,
+  "phase": "phase0",
+  "checked_at": "2026-11-15T21:49:56.620651+00:00"
+}
