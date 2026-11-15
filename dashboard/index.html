@@ -159,6 +159,19 @@
   }
   .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
   .stat-row b { color: var(--fg); }
+
+  /* "Performance overview" tiles: the few numbers worth seeing before
+     scrolling to any chart - one highlighted headline metric (colored in
+     the test's own color) plus supporting ones in plain text. */
+  .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 20px; margin-bottom: 24px; }
+  .overview-tile { padding: 2px 0; }
+  .overview-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .overview-value { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .overview-value.headline { color: var(--test1); }
+  .test-panel[data-test="test1"] .overview-value.headline { color: var(--test1); }
+  .test-panel[data-test="test2"] .overview-value.headline { color: var(--test2); }
+  .test-panel[data-test="test3"] .overview-value.headline { color: var(--test3); }
+  .overview-caption { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -189,6 +202,19 @@ function fmt(n, digits = 2) {
 }
 function pct(v) {
   return (v === null || v === undefined) ? '-' : Math.round(v * 100) + '%';
+}
+function fmtInt(n) {
+  return (n === null || n === undefined) ? '&ndash;' : Math.round(n).toLocaleString();
+}
+function overviewTile(label, value, caption, headline) {
+  return `<div class="overview-tile">
+    <div class="overview-label">${label}</div>
+    <div class="overview-value${headline ? ' headline' : ''}">${value}</div>
+    <div class="overview-caption">${caption}</div>
+  </div>`;
+}
+function overviewGrid(tiles) {
+  return `<div class="overview-grid">${tiles.join('')}</div>`;
 }
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -241,7 +267,17 @@ function renderTest1(allRuns) {
   const { gpuCounts, html: gpuTabs } = gpuTabsHtml(allRuns);
   const runs = gpuCounts.length ? allRuns.filter(r => r.gpu_count === currentGpuMode) : allRuns;
   if (!runs.length) return gpuTabs + '<p class="empty">No Test 1 data for this GPU mode.</p>';
-  let html = gpuTabs + '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
+
+  const maxConcurrencyRun = [...runs].filter(r => r.concurrency != null).sort((a, b) => b.concurrency - a.concurrency)[0];
+  let html = gpuTabs;
+  if (maxConcurrencyRun) {
+    html += overviewGrid([
+      overviewTile('Output throughput', fmtInt(maxConcurrencyRun.output_tokens_per_second_mean), 'tokens/sec', true),
+      overviewTile('Mean TTFT', fmt(maxConcurrencyRun.ttft_ms_mean, 1), `ms &middot; concurrency ${maxConcurrencyRun.concurrency}`),
+      overviewTile('Mean TPOT', fmt(maxConcurrencyRun.tpot_ms_mean, 2), 'ms'),
+    ]);
+  }
+  html += '<div class="test-note">Synthetic load, GuideLLM. "Concurrency" = fixed configured streams.</div>';
   html += barChart(runs, r => `${r.strategy}${r.concurrency ? ' @' + r.concurrency : ''}`, r => r.ttft_ms_mean, ' ms TTFT');
   html += '<table><thead><tr><th>Strategy</th><th>Concurrency</th><th>Duration (s)</th><th>Mean TTFT (ms)</th><th>Mean TPOT (ms)</th><th>Latency/req (s)</th><th>Output tok/s</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
@@ -403,9 +439,27 @@ function destroyChartById(canvasId) {
 
 // ---------- Test 2: Chatbot ----------
 
+function meanTurnField(run, field) {
+  const vals = [];
+  for (const u of run.users) {
+    for (const t of u.turns) {
+      if (!t.error && t[field] != null) vals.push(t[field]);
+    }
+  }
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
 function renderTest2(runs) {
   if (!runs.length) return '<p class="empty">No Test 2 data for this model.</p>';
-  let html = '<div class="test-note">Simulated concurrent users (general, code, summary, knowledge), each running a conversation of 1+ turns, against the inference server directly.</div>';
+  const maxUsersRun = [...runs].filter(r => r.concurrent_users != null).sort((a, b) => b.concurrent_users - a.concurrent_users)[0];
+  let html = '';
+  if (maxUsersRun) {
+    html += overviewGrid([
+      overviewTile('Mean end-to-end latency', fmt(meanTurnField(maxUsersRun, 'total_latency_s'), 2), `s &middot; ${maxUsersRun.concurrent_users} users`, true),
+      overviewTile('Mean TTFT', fmt(meanTurnField(maxUsersRun, 'ttft_s'), 2), 's'),
+    ]);
+  }
+  html += '<div class="test-note">Simulated concurrent users (general, code, summary, knowledge), each running a conversation of 1+ turns, against the inference server directly.</div>';
   html += barChart(runs, r => parallelismLabel(r), r => r.overall_duration_s, ' s total');
   html += '<table><thead><tr><th>Target</th><th>Parallelism setting</th><th>Users</th><th>Turns/conv.</th><th>Total duration (s)</th><th>Error rate</th></tr></thead><tbody>';
   for (const r of runs) {
@@ -518,7 +572,15 @@ function wireTest2Charts(runs) {
 
 function renderTest3(runs) {
   if (!runs.length) return '<p class="empty">No Test 3 data for this model.</p>';
-  let html = '<div class="test-note">Retrieval (Qdrant + nomic-embed-text) + generation, over the Kubernetes docs corpus. No reranking or keyword/hybrid search stage exists in this pipeline (vector-only) - charts below mark those as n/a rather than fabricating a value.</div>';
+  const largestRun = [...runs].filter(r => r.num_queries != null).sort((a, b) => b.num_queries - a.num_queries)[0];
+  let html = '';
+  if (largestRun) {
+    html += overviewGrid([
+      overviewTile('Mean generation latency', fmt(largestRun.avg_generation_s, 2), `s &middot; q${largestRun.num_queries} c${largestRun.concurrency}`, true),
+      overviewTile('Mean retrieval latency', fmt(largestRun.avg_retrieval_s, 3), 's (embedding + vector search)'),
+    ]);
+  }
+  html += '<div class="test-note">Retrieval (Qdrant + nomic-embed-text) + generation, over the Kubernetes docs corpus. No reranking or keyword/hybrid search stage exists in this pipeline (vector-only) - charts below mark those as n/a rather than fabricating a value.</div>';
   html += barChart(runs, r => `q${r.num_queries} c${r.concurrency}`, r => r.wall_duration_s, ' s wall-clock');
   html += '<table><thead><tr><th>Queries</th><th>Concurrency</th><th>Top-K</th><th>Wall-clock (s)</th><th>Mean retrieval (s)</th><th>Mean generation (s)</th><th>Tokens in/out</th><th>Avg similarity</th><th>Error rate</th><th>Hit rate top-k</th></tr></thead><tbody>';
   for (const r of runs) {
