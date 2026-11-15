@@ -596,8 +596,7 @@ function wireTest1Charts(allRuns) {
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
   const runSelect = document.getElementById('t1RunSelect');
   if (runSelect) {
-    runSelect.innerHTML = runsWithDetail.map((r, i) =>
-      `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
+    runSelect.innerHTML = buildRunOptions(runsWithDetail, r => r.concurrency ?? '?');
     const draw = () => {
       const r = runsWithDetail[Number(runSelect.value)];
       const successful = r.requests_detail.filter(d => d.status === 'successful');
@@ -654,8 +653,7 @@ function wireTest1Charts(allRuns) {
   const runsWithResources = runs.filter(r => r.resource_usage && r.resource_usage.length);
   const hwSelect = document.getElementById('t1HwRunSelect');
   if (hwSelect) {
-    hwSelect.innerHTML = runsWithResources.map((r, i) =>
-      `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
+    hwSelect.innerHTML = buildRunOptions(runsWithResources, r => r.concurrency ?? '?');
     const draw = () => {
       const r = runsWithResources[Number(hwSelect.value)];
       const devices = [...new Set(r.resource_usage.map(d => d.device))];
@@ -682,6 +680,27 @@ function wireTest1Charts(allRuns) {
     hwSelect.onchange = () => { destroyChartById('t1HwChart'); draw(); };
     draw();
   }
+}
+
+// Builds <option> labels for a "concurrent users" run selector. Plain
+// labelFn(run) output ("4", "2") would be ambiguous when two separate runs
+// share the same concurrency level (e.g. a repeated/validation run) - each
+// one in that selector is otherwise a silent duplicate the user has no way
+// to tell apart, so duplicates get "(run 1 of 2)" etc appended.
+function buildRunOptions(runs, labelFn) {
+  const labels = runs.map(labelFn);
+  const counts = {};
+  labels.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+  const seen = {};
+  return runs.map((r, i) => {
+    const label = labels[i];
+    let text = String(label);
+    if (counts[label] > 1) {
+      seen[label] = (seen[label] || 0) + 1;
+      text = `${label} (run ${seen[label]} of ${counts[label]})`;
+    }
+    return `<option value="${i}">${text}</option>`;
+  }).join('');
 }
 
 function destroyChartById(canvasId) {
@@ -720,7 +739,7 @@ function parallelismLabel(r) {
 function wireTest2Charts(runs) {
   const select = document.getElementById('t2RunSelect');
   if (!select) return;
-  select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.concurrent_users ?? '?'}</option>`).join('');
+  select.innerHTML = buildRunOptions(runs, r => r.concurrent_users ?? '?');
   const turnsNote = document.getElementById('t2TurnsNote');
 
   const draw = () => {
@@ -869,7 +888,7 @@ function wireTest3Charts(runs) {
 
   const select = document.getElementById('t3RunSelect');
   if (select) {
-    select.innerHTML = runs.map((r, i) => `<option value="${i}">${r.concurrency ?? '?'}</option>`).join('');
+    select.innerHTML = buildRunOptions(runs, r => r.concurrency ?? '?');
     const draw = () => {
       const r = runs[Number(select.value)];
       destroyChartById('t3TokensChart');
