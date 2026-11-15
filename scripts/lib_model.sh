@@ -30,10 +30,12 @@ resolve_model_repo() {
 # the caller's own shell rather than a throwaway subshell.
 parse_model_flag() {
   RESOLVED_MODEL_REPO=""
+  RESOLVED_MODEL_SHORT_NAME=""
   PARSED_ARGS=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)
+        RESOLVED_MODEL_SHORT_NAME="$2"
         RESOLVED_MODEL_REPO="$(resolve_model_repo "$2")" || exit 1
         shift 2
         ;;

@@ -61,7 +61,12 @@ if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
   MODEL_NAME="${RESOLVED_MODEL_REPO}"
   TOKENIZER_MODEL="${RESOLVED_MODEL_REPO}"
   echo "==> --model given: ensuring vLLM is serving ${MODEL_NAME} (downloads it if not cached)..."
-  VLLM_MODEL="${RESOLVED_MODEL_REPO}" "${PROJECT_ROOT}/scripts/start_inference_vllm.sh"
+  # Pass --model through, NOT an exported VLLM_MODEL env var: start_inference_vllm.sh
+  # sources .env itself, which would silently overwrite an inherited env var
+  # with .env's own VLLM_MODEL= line - --model is applied AFTER that source,
+  # so it's the only override that reliably wins (confirmed the hard way: a
+  # run_benchmark.sh --model call silently benchmarked .env's model instead).
+  "${PROJECT_ROOT}/scripts/start_inference_vllm.sh" --model "${RESOLVED_MODEL_SHORT_NAME}"
 fi
 
 if [[ ! -x "${VENV_DIR}/bin/guidellm" ]]; then

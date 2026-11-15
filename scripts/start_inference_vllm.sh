@@ -64,10 +64,20 @@ source "${PROJECT_ROOT}/scripts/lib_model.sh"
 parse_model_flag "$@"
 set -- "${PARSED_ARGS[@]}"
 
+# Preserve a VLLM_MODEL already exported into this shell (e.g. by a caller
+# script) - otherwise `source .env` below unconditionally overwrites it with
+# .env's own VLLM_MODEL= line, silently serving the wrong model. Same class
+# of bug as run_benchmark.sh's BENCHMARK_CONCURRENCY clobber - --model below
+# already avoids it (applied after the source), this is just defense in
+# depth for anyone invoking this script with an exported env var instead.
+if [[ -v VLLM_MODEL ]]; then _PRESET_VLLM_MODEL="${VLLM_MODEL}"; fi
+
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
 fi
+
+if [[ -v _PRESET_VLLM_MODEL ]]; then VLLM_MODEL="${_PRESET_VLLM_MODEL}"; fi
 
 if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
   VLLM_MODEL="${RESOLVED_MODEL_REPO}"

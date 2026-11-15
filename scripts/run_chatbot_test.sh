@@ -38,7 +38,10 @@ CHATBOT_MAX_CONTEXT_TOKENS="${CHATBOT_MAX_CONTEXT_TOKENS:-}"
 if [[ -n "${RESOLVED_MODEL_REPO}" ]]; then
   MODEL_NAME="${RESOLVED_MODEL_REPO}"
   echo "==> --model given: ensuring vLLM is serving ${MODEL_NAME} (downloads it if not cached)..."
-  VLLM_MODEL="${RESOLVED_MODEL_REPO}" "${PROJECT_ROOT}/scripts/start_inference_vllm.sh"
+  # --model, not an exported VLLM_MODEL env var - see run_benchmark.sh for why
+  # (start_inference_vllm.sh's own `source .env` would silently clobber an
+  # inherited env var back to .env's model).
+  "${PROJECT_ROOT}/scripts/start_inference_vllm.sh" --model "${RESOLVED_MODEL_SHORT_NAME}"
 fi
 
 if [[ ! -f "${VENV_DIR}/bin/python3" ]]; then
