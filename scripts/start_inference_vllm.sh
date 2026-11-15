@@ -31,6 +31,13 @@
 #      (VLLM::EngineCore, VLLM::Worker_TPx) alive and holding VRAM even
 #      after `pkill -f "vllm serve"` kills the parent - if a restart OOMs
 #      immediately, check `nvidia-smi` and `pkill -9 -f "VLLM::"` too.
+#   4. For a GATED model (e.g. meta-llama/Llama-3.2-1B-Instruct), HF_TOKEN
+#      must be in the `vllm serve` process's own environment, not just
+#      passed to the `hf download` step below - even with the weights
+#      already cached, vLLM's tokenizer loading calls the HF API to check
+#      repo access, and without HF_TOKEN there it 401s with "Cannot access
+#      gated repo" buried in the log, while the only symptom up front is
+#      "vLLM did not become ready in time". Exported automatically below.
 #
 # Usage: ./scripts/start_inference_vllm.sh [--model <short-name>]
 #   --model lets you pick the model by a short name instead of editing .env
@@ -161,7 +168,15 @@ if ! curl -sf "${VLLM_URL}/health" >/dev/null 2>&1; then
   # shellcheck disable=SC2206
   [[ -n "${VLLM_EXTRA_ARGS:-}" ]] && VLLM_ARGS+=(${VLLM_EXTRA_ARGS})
 
-  nohup "${VENV_DIR}/bin/vllm" "${VLLM_ARGS[@]}" >"${LOG_FILE}" 2>&1 &
+  # HF_TOKEN must be in the vLLM server process's own environment, not just
+  # passed to the separate `hf download` step above - confirmed on real
+  # hardware with a gated model (meta-llama/Llama-3.2-1B-Instruct): even with
+  # the weights already cached locally, vLLM's tokenizer loading still calls
+  # the Hugging Face API to validate repo access, and without HF_TOKEN here
+  # that call 401s with "Cannot access gated repo", not an obvious anonymous
+  # file-not-found (the "vLLM did not become ready in time" message alone
+  # doesn't show this - check ${LOG_FILE} for the real error).
+  HF_TOKEN="${HF_TOKEN:-}" nohup "${VENV_DIR}/bin/vllm" "${VLLM_ARGS[@]}" >"${LOG_FILE}" 2>&1 &
   echo $! > "${PID_FILE}"
 
   echo "==> Waiting for vLLM to become ready (model load can take a few minutes for large models)..."
