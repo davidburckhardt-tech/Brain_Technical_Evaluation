@@ -49,8 +49,19 @@
 #   VLLM_MODEL                 Hugging Face repo id (e.g. meta-llama/Llama-3.1-8B-Instruct)
 # Optional:
 #   VLLM_HOST (default 0.0.0.0)       VLLM_PORT (default 8000)
-#   VLLM_TENSOR_PARALLEL_SIZE (default 1)      - set to the number of GPUs for one model
+#   VLLM_TENSOR_PARALLEL_SIZE (default 1)      - set to the number of GPUs for ONE replica
+#       of the model (shards a single model across GPUs, with cross-GPU NCCL sync on every
+#       forward pass - only worth it when the model doesn't fit on one GPU).
+#   VLLM_DATA_PARALLEL_SIZE (default 1)        - set to the number of independent, FULL
+#       replicas of the model, one per GPU, each with its own KV cache and no cross-GPU
+#       sync - vLLM runs one APIServer in front of all replicas and load-balances between
+#       them itself. For a model that already fits on a single GPU, this generally serves
+#       more concurrent requests than tensor-parallel, since there's no NCCL overhead and
+#       no sharing of KV cache budget between unrelated requests. Mutually exclusive in
+#       practice with VLLM_TENSOR_PARALLEL_SIZE>1 for this project's models (all small
+#       enough to fit on one GPU) - set at most one of the two above 1.
 #   VLLM_GPU_MEMORY_UTILIZATION (default 0.90) - fraction of VRAM vLLM is allowed to reserve
+#       PER GPU/replica (applies independently to each one under data-parallel)
 #   VLLM_MAX_MODEL_LEN (default: model's own config)
 #   VLLM_MAX_NUM_SEQS (default: vLLM's own default, ~256) - caps concurrent sequences;
 #       this is vLLM's rough equivalent of Ollama's OLLAMA_NUM_PARALLEL, except vLLM
@@ -93,6 +104,7 @@ VLLM_MODEL="${VLLM_MODEL:?Set VLLM_MODEL in .env, or pass --model <short-name> (
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
 VLLM_PORT="${VLLM_PORT:-8000}"
 VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+VLLM_DATA_PARALLEL_SIZE="${VLLM_DATA_PARALLEL_SIZE:-1}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
 VLLM_URL="http://localhost:${VLLM_PORT}"
 
@@ -161,6 +173,7 @@ if ! curl -sf "${VLLM_URL}/health" >/dev/null 2>&1; then
     --tensor-parallel-size "${VLLM_TENSOR_PARALLEL_SIZE}"
     --gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION}"
   )
+  [[ "${VLLM_DATA_PARALLEL_SIZE}" -gt 1 ]] && VLLM_ARGS+=(--data-parallel-size "${VLLM_DATA_PARALLEL_SIZE}")
   [[ -n "${VLLM_MAX_MODEL_LEN:-}" ]] && VLLM_ARGS+=(--max-model-len "${VLLM_MAX_MODEL_LEN}")
   [[ -n "${VLLM_MAX_NUM_SEQS:-}" ]] && VLLM_ARGS+=(--max-num-seqs "${VLLM_MAX_NUM_SEQS}")
   [[ -n "${VLLM_DTYPE:-}" ]] && VLLM_ARGS+=(--dtype "${VLLM_DTYPE}")
@@ -204,3 +217,13 @@ echo "==> Model is loaded and ready to serve requests."
 echo "OpenAI-compatible endpoint: ${VLLM_URL}/v1"
 echo ""
 echo "Note: point BENCHMARK_TARGET / --ollama-host-style args at ${VLLM_URL} (no /v1) for the other scripts."
+
+# Record the serving config actually in effect right now - the test wrapper
+# scripts (run_benchmark.sh etc.) copy this into each run's own output
+# directory right after calling this script, so the dashboard can tell a
+# tensor-parallel run apart from a data-parallel one. Both can show 2 GPUs
+# with real memory usage in resource_usage.csv, so that alone is ambiguous;
+# this file is the actual source of truth.
+cat > "${RESULTS_DIR}/current_serving_config.json" <<EOF
+{"model": "${VLLM_MODEL}", "tensor_parallel_size": ${VLLM_TENSOR_PARALLEL_SIZE}, "data_parallel_size": ${VLLM_DATA_PARALLEL_SIZE}, "gpu_memory_utilization": ${VLLM_GPU_MEMORY_UTILIZATION}}
+EOF

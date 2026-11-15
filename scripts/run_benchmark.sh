@@ -120,6 +120,14 @@ run_one_concurrency() {
   safe_model_name="${MODEL_NAME//[:\/]/_}"
   run_dir="${PROJECT_ROOT}/results/${safe_model_name}/${timestamp}_c${concurrency}"
   mkdir -p "${run_dir}"
+  # Snapshot of the serving config (TP vs DP) in effect for this run, written
+  # by start_inference_vllm.sh just above when --model was given - lets the
+  # dashboard tell a tensor-parallel run apart from a data-parallel one
+  # (both can show 2 active GPUs). Not meaningful for a non-vLLM target
+  # (e.g. Ollama, Phase 0), so only copy it when --model triggered vLLM.
+  if [[ -n "${RESOLVED_MODEL_REPO}" && -f "${PROJECT_ROOT}/results/current_serving_config.json" ]]; then
+    cp "${PROJECT_ROOT}/results/current_serving_config.json" "${run_dir}/serving_config.json"
+  fi
 
   echo "==> Running GuideLLM against ${BENCHMARK_TARGET} (model: ${MODEL_NAME}, tokenizer: ${TOKENIZER_MODEL})"
   echo "==> Fixed concurrency: ${concurrency} streams, ${request_count} requests total"

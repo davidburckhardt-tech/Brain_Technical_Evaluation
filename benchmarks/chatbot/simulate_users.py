@@ -300,7 +300,24 @@ async def main_async(
     print_lock = asyncio.Lock()
     overall_start = time.monotonic()
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+    # httpx.AsyncClient defaults to max_connections=100 - with len(prompts)
+    # simulated users each holding one connection in flight for the whole
+    # conversation (10 turns is a lot longer per-connection than the
+    # original single-shot design), more than 100 concurrent users queue up
+    # waiting for a pool slot before their request even reaches the server.
+    # That wait then counts toward the read timeout below and surfaces as a
+    # plain "timeout" error indistinguishable from the model actually being
+    # slow - confirmed on real hardware: a 256-user run had ~156 timeouts,
+    # matching 256-100 almost exactly. Sized with headroom so the pool is
+    # never the bottleneck; the real ceiling here is GPU-side.
+    limits = httpx.Limits(max_connections=max(len(prompts) + 20, 100))
+    # 120s was tuned for single-shot requests - under heavy concurrency a
+    # multi-turn conversation can legitimately take longer than that per
+    # turn (server-side queuing, continuous batching sharing throughput
+    # across everyone in flight), so a short timeout mislabels slow-but-
+    # genuine responses as failures. 300s gives real responses room to land.
+    timeout = httpx.Timeout(300.0)
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         results = await asyncio.gather(
             *(
                 run_conversation(client, target, model, entry, num_turns, max_context_tokens, print_lock, quiet)

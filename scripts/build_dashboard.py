@@ -85,6 +85,35 @@ def infer_gpu_count(resource_usage_rows: list[dict]) -> int | None:
     return len(active) if active else 1
 
 
+def read_serving_config(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def classify_serving_mode(serving_config: dict | None, gpu_count_fallback: int | None) -> str | None:
+    """"1gpu" / "2gpu-tp" (tensor-parallel: one model sharded across 2 GPUs,
+    synced every forward pass) / "2gpu-dp" (data-parallel: 2 independent
+    full replicas, one per GPU, no sync). Both TP and DP show 2 active GPUs
+    in resource_usage.csv, so that alone can't tell them apart - this needs
+    the serving_config.json sidecar (written by start_inference_vllm.sh) to
+    disambiguate. Runs from before that sidecar existed (DP didn't exist
+    yet) fall back to the GPU-count heuristic, where 2 active GPUs can only
+    mean tensor-parallel."""
+    if serving_config is not None:
+        if serving_config.get("data_parallel_size", 1) > 1:
+            return "2gpu-dp"
+        if serving_config.get("tensor_parallel_size", 1) > 1:
+            return "2gpu-tp"
+        return "1gpu"
+    if gpu_count_fallback == 1:
+        return "1gpu"
+    if gpu_count_fallback == 2:
+        return "2gpu-tp"
+    return None
+
+
 def collect_test1_runs() -> list[dict]:
     runs = []
     for benchmarks_json in sorted(RESULTS_DIR.glob("*/*/benchmarks.json")):
@@ -116,13 +145,16 @@ def collect_test1_runs() -> list[dict]:
                 })
 
             resource_usage = read_resource_usage(run_dir / "resource_usage.csv")
+            gpu_count = infer_gpu_count(resource_usage)
+            serving_config = read_serving_config(run_dir / "serving_config.json")
             runs.append({
                 "run_dir": run_dir.name,
                 "model": model,
                 "target": target,
                 "strategy": strategy.get("type_"),
                 "concurrency": concurrency,
-                "gpu_count": infer_gpu_count(resource_usage),
+                "gpu_count": gpu_count,
+                "serving_mode": classify_serving_mode(serving_config, gpu_count),
                 "duration_s": benchmark.get("duration"),
                 "ttft_ms_mean": stat("time_to_first_token_ms"),
                 "tpot_ms_mean": stat("time_per_output_token_ms"),
@@ -187,6 +219,8 @@ def collect_test2_runs() -> list[dict]:
         ]
 
         resource_csv = path.with_name(path.stem + "_resources.csv")
+        resource_usage = read_resource_usage(resource_csv)
+        serving_config = read_serving_config(path.with_name(path.stem + "_serving_config.json"))
         runs.append({
             "run_file": path.name,
             "model": data.get("model", "unknown"),
@@ -197,8 +231,9 @@ def collect_test2_runs() -> list[dict]:
             "max_context_tokens": data.get("max_context_tokens"),
             "overall_duration_s": data.get("overall_duration_s"),
             "error_rate": data.get("error_rate"),
+            "serving_mode": classify_serving_mode(serving_config, infer_gpu_count(resource_usage)),
             "users": normalized_users,
-            "resource_usage": read_resource_usage(resource_csv),
+            "resource_usage": resource_usage,
         })
     return runs
 
@@ -232,6 +267,8 @@ def collect_test3_runs() -> list[dict]:
         ]
 
         resource_csv = path.with_name(path.stem + "_resources.csv")
+        resource_usage = read_resource_usage(resource_csv)
+        serving_config = read_serving_config(path.with_name(path.stem + "_serving_config.json"))
         runs.append({
             "run_file": path.name,
             "model": data.get("model", "unknown"),
@@ -240,6 +277,7 @@ def collect_test3_runs() -> list[dict]:
             "top_k": data.get("top_k"),
             "wall_duration_s": data.get("wall_duration_s"),
             "error_rate": data.get("error_rate"),
+            "serving_mode": classify_serving_mode(serving_config, infer_gpu_count(resource_usage)),
             "avg_embedding_s": avg("embedding_duration_s"),
             "avg_vector_search_s": avg("vector_search_duration_s"),
             "avg_retrieval_s": avg("retrieval_duration_s"),
@@ -249,7 +287,7 @@ def collect_test3_runs() -> list[dict]:
             "avg_similarity_score": avg("avg_similarity_score"),
             "expected_chunk_hit_rate": hit_rate,
             "per_request": per_request,
-            "resource_usage": read_resource_usage(resource_csv),
+            "resource_usage": resource_usage,
         })
     return runs
 
@@ -580,24 +618,50 @@ function barChart(rows, labelFn, valueFn, opts) {
   return html + '</div>';
 }
 
-// ---------- Test 1: Hardware / Model Serving ----------
+// ---------- Serving-mode (1 GPU / tensor-parallel / data-parallel) sub-tabs,
+// shared by all three tests - both tensor-parallel and data-parallel show 2
+// active GPUs in resource_usage.csv, so classification comes from the
+// serving_config.json sidecar (see classify_serving_mode in the Python
+// build script), with GPU-count as a fallback for older runs. ----------
 
-function gpuTabsHtml(allRuns) {
-  const gpuCounts = [...new Set(allRuns.map(r => r.gpu_count).filter(v => v != null))].sort((a, b) => a - b);
-  if (gpuCounts.length === 0) return { gpuCounts, html: '' };
-  if (currentGpuMode == null || !gpuCounts.includes(currentGpuMode)) currentGpuMode = gpuCounts[0];
-  if (gpuCounts.length < 2) return { gpuCounts, html: '' };
-  const html = '<div class="gpu-tabs">' + gpuCounts.map(c =>
-    `<button class="gpu-tab" data-gpu="${c}" aria-selected="${c === currentGpuMode}">${c} GPU${c > 1 ? 's' : ''} (tensor-parallel=${c})</button>`
+const SERVING_MODE_LABELS = {
+  '1gpu': '1 GPU',
+  '2gpu-tp': '2 GPUs (tensor-parallel)',
+  '2gpu-dp': '2 GPUs (data-parallel)',
+};
+const SERVING_MODE_ORDER = ['1gpu', '2gpu-tp', '2gpu-dp'];
+
+function servingModeTabsHtml(allRuns) {
+  const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
+  if (modes.length === 0) return { modes, html: '' };
+  if (currentServingMode == null || !modes.includes(currentServingMode)) currentServingMode = modes[0];
+  if (modes.length < 2) return { modes, html: '' };
+  const html = '<div class="gpu-tabs">' + modes.map(m =>
+    `<button class="gpu-tab" data-mode="${m}" aria-selected="${m === currentServingMode}">${SERVING_MODE_LABELS[m] || m}</button>`
   ).join('') + '</div>';
-  return { gpuCounts, html };
+  return { modes, html };
 }
+
+function filterByServingMode(allRuns, modes) {
+  return modes.length ? allRuns.filter(r => r.serving_mode === currentServingMode) : allRuns;
+}
+
+function wireServingModeTabs() {
+  document.querySelectorAll('#testPanel .gpu-tab').forEach(btn => {
+    btn.onclick = () => {
+      currentServingMode = btn.getAttribute('data-mode');
+      renderTestPanel();
+    };
+  });
+}
+
+// ---------- Test 1: Hardware / Model Serving ----------
 
 function renderTest1(allRuns) {
   if (!allRuns.length) return '<p class="empty">No Test 1 data for this model.</p>';
-  const { gpuCounts, html: gpuTabs } = gpuTabsHtml(allRuns);
-  const runs = gpuCounts.length ? allRuns.filter(r => r.gpu_count === currentGpuMode) : allRuns;
-  if (!runs.length) return gpuTabs + '<p class="empty">No Test 1 data for this GPU mode.</p>';
+  const { modes, html: gpuTabs } = servingModeTabsHtml(allRuns);
+  const runs = filterByServingMode(allRuns, modes);
+  if (!runs.length) return gpuTabs + '<p class="empty">No Test 1 data for this serving mode.</p>';
 
   const maxConcurrencyRun = [...runs].filter(r => r.concurrency != null).sort((a, b) => b.concurrency - a.concurrency)[0];
   let html = gpuTabs;
@@ -645,14 +709,9 @@ function renderTest1(allRuns) {
 }
 
 function wireTest1Charts(allRuns) {
-  document.querySelectorAll('#testPanel .gpu-tab').forEach(btn => {
-    btn.onclick = () => {
-      currentGpuMode = Number(btn.getAttribute('data-gpu'));
-      renderTestPanel();
-    };
-  });
-  const gpuCounts = [...new Set(allRuns.map(r => r.gpu_count).filter(v => v != null))];
-  const runs = gpuCounts.length ? allRuns.filter(r => r.gpu_count === currentGpuMode) : allRuns;
+  wireServingModeTabs();
+  const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
+  const runs = filterByServingMode(allRuns, modes);
   if (!runs.length) return;
 
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
@@ -782,10 +841,14 @@ function meanTurnField(run, field) {
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
-function renderTest2(runs) {
-  if (!runs.length) return '<p class="empty">No Test 2 data for this model.</p>';
+function renderTest2(allRuns) {
+  if (!allRuns.length) return '<p class="empty">No Test 2 data for this model.</p>';
+  const { modes, html: servingTabs } = servingModeTabsHtml(allRuns);
+  const runs = filterByServingMode(allRuns, modes);
+  if (!runs.length) return servingTabs + '<p class="empty">No Test 2 data for this serving mode.</p>';
+
   const maxUsersRun = [...runs].filter(r => r.concurrent_users != null).sort((a, b) => b.concurrent_users - a.concurrent_users)[0];
-  let html = '';
+  let html = servingTabs;
   if (maxUsersRun) {
     html += overviewGrid([
       overviewTile('Mean end-to-end latency', fmt(meanTurnField(maxUsersRun, 'total_latency_s'), 2), `s &middot; ${maxUsersRun.concurrent_users} users`, true),
@@ -802,6 +865,9 @@ function renderTest2(runs) {
       <td>${r.turns_per_conversation ?? 1}</td><td>${fmt(r.overall_duration_s)}</td><td>${pct(r.error_rate)}</td></tr>`;
   }
   html += '</tbody></table>';
+  if (runs.some(r => r.error_rate)) {
+    html += '<div class="chart-note">A non-zero error rate at high concurrency can partly reflect HTTP timeout/connection-pool limits in the test client itself under heavy load, not only the model/server failing - see per-run error detail before treating it as a hard capacity ceiling.</div>';
+  }
 
   html += '<div class="run-select">Concurrent users: <select id="t2RunSelect"></select><span class="chart-note" id="t2TurnsNote"></span></div>';
   html += '<h3><span class="step-num">1</span>End-to-end latency per turn</h3>';
@@ -818,7 +884,12 @@ function parallelismLabel(r) {
   return r.ollama_num_parallel ? `OLLAMA_NUM_PARALLEL=${r.ollama_num_parallel}` : 'n/a (not Ollama, or unset)';
 }
 
-function wireTest2Charts(runs) {
+function wireTest2Charts(allRuns) {
+  wireServingModeTabs();
+  const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
+  const runs = filterByServingMode(allRuns, modes);
+  if (!runs.length) return;
+
   const select = document.getElementById('t2RunSelect');
   if (!select) return;
   select.innerHTML = buildRunOptions(runs, r => r.concurrent_users ?? '?');
@@ -905,10 +976,14 @@ function wireTest2Charts(runs) {
 
 // ---------- Test 3: RAG ----------
 
-function renderTest3(runs) {
-  if (!runs.length) return '<p class="empty">No Test 3 data for this model.</p>';
+function renderTest3(allRuns) {
+  if (!allRuns.length) return '<p class="empty">No Test 3 data for this model.</p>';
+  const { modes, html: servingTabs } = servingModeTabsHtml(allRuns);
+  const runs = filterByServingMode(allRuns, modes);
+  if (!runs.length) return servingTabs + '<p class="empty">No Test 3 data for this serving mode.</p>';
+
   const largestRun = [...runs].filter(r => r.num_queries != null).sort((a, b) => b.num_queries - a.num_queries)[0];
-  let html = '';
+  let html = servingTabs;
   if (largestRun) {
     html += overviewGrid([
       overviewTile('Mean generation latency', fmt(largestRun.avg_generation_s, 2), `s &middot; q${largestRun.num_queries} c${largestRun.concurrency}`, true),
@@ -940,7 +1015,12 @@ function renderTest3(runs) {
   return html;
 }
 
-function wireTest3Charts(runs) {
+function wireTest3Charts(allRuns) {
+  wireServingModeTabs();
+  const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
+  const runs = filterByServingMode(allRuns, modes);
+  if (!runs.length) return;
+
   const sortedByScale = [...runs].sort((a, b) => (a.num_queries ?? 0) - (b.num_queries ?? 0));
   makeChart('t3BreakdownChart', {
     type: 'bar',
@@ -989,7 +1069,7 @@ const TEST_META = {
 let currentPhase = null;
 let currentModel = null;
 let currentTest = 'test1';
-let currentGpuMode = null; // Test 1 sub-tab: 1 GPU vs 2 GPU (tensor-parallel)
+let currentServingMode = null; // sub-tab shared by Test 1/2/3: 1 GPU vs tensor-parallel vs data-parallel
 
 function renderTestPanel() {
   const d = DATA[currentPhase][currentModel];
@@ -1023,7 +1103,7 @@ function renderTestTabs() {
 
 function renderModel(model) {
   currentModel = model;
-  currentGpuMode = null; // don't carry e.g. "2 GPU" over to a model/phase that has no such split
+  currentServingMode = null; // don't carry e.g. "2 GPU" over to a model/phase that has no such split
   renderTestTabs();
   renderTestPanel();
 }

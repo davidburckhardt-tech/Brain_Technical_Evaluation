@@ -56,6 +56,12 @@ mkdir -p "${RUN_DIR}"
 OUTPUT_FILE="${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}.json"
 MONITOR_OUTPUT="${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_resources.csv"
 
+# Snapshot of the serving config (TP vs DP) in effect for this run - see
+# run_benchmark.sh for why this is needed (both look like "2 GPUs" otherwise).
+if [[ -n "${RESOLVED_MODEL_REPO}" && -f "${PROJECT_ROOT}/results/current_serving_config.json" ]]; then
+  cp "${PROJECT_ROOT}/results/current_serving_config.json" "${RUN_DIR}/${TIMESTAMP}_rag_q${NUM_QUERIES}_c${CONCURRENCY}_serving_config.json"
+fi
+
 # Resource monitoring: auto-detects GPU (nvidia-smi) vs CPU (psutil), runs in
 # the background for the duration of the test.
 "${VENV_DIR}/bin/python3" "${PROJECT_ROOT}/scripts/monitor_resources.py" \
