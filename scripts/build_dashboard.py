@@ -660,7 +660,11 @@ function wireServingModeTabs() {
 function renderTest1(allRuns) {
   if (!allRuns.length) return '<p class="empty">No Test 1 data for this model.</p>';
   const { modes, html: gpuTabs } = servingModeTabsHtml(allRuns);
-  const runs = filterByServingMode(allRuns, modes);
+  // Sort by concurrency explicitly rather than relying on collection order -
+  // real runs happen to come back sorted (timestamps increase with the
+  // sweep), but that's incidental, not guaranteed (e.g. out-of-order re-runs).
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.concurrency ?? 0) - (b.concurrency ?? 0));
   if (!runs.length) return gpuTabs + '<p class="empty">No Test 1 data for this serving mode.</p>';
 
   const maxConcurrencyRun = [...runs].filter(r => r.concurrency != null).sort((a, b) => b.concurrency - a.concurrency)[0];
@@ -711,7 +715,8 @@ function renderTest1(allRuns) {
 function wireTest1Charts(allRuns) {
   wireServingModeTabs();
   const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
-  const runs = filterByServingMode(allRuns, modes);
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.concurrency ?? 0) - (b.concurrency ?? 0));
   if (!runs.length) return;
 
   const runsWithDetail = runs.filter(r => r.requests_detail && r.requests_detail.length);
@@ -844,7 +849,8 @@ function meanTurnField(run, field) {
 function renderTest2(allRuns) {
   if (!allRuns.length) return '<p class="empty">No Test 2 data for this model.</p>';
   const { modes, html: servingTabs } = servingModeTabsHtml(allRuns);
-  const runs = filterByServingMode(allRuns, modes);
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.concurrent_users ?? 0) - (b.concurrent_users ?? 0));
   if (!runs.length) return servingTabs + '<p class="empty">No Test 2 data for this serving mode.</p>';
 
   const maxUsersRun = [...runs].filter(r => r.concurrent_users != null).sort((a, b) => b.concurrent_users - a.concurrent_users)[0];
@@ -887,7 +893,8 @@ function parallelismLabel(r) {
 function wireTest2Charts(allRuns) {
   wireServingModeTabs();
   const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
-  const runs = filterByServingMode(allRuns, modes);
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.concurrent_users ?? 0) - (b.concurrent_users ?? 0));
   if (!runs.length) return;
 
   const select = document.getElementById('t2RunSelect');
@@ -979,7 +986,8 @@ function wireTest2Charts(allRuns) {
 function renderTest3(allRuns) {
   if (!allRuns.length) return '<p class="empty">No Test 3 data for this model.</p>';
   const { modes, html: servingTabs } = servingModeTabsHtml(allRuns);
-  const runs = filterByServingMode(allRuns, modes);
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.num_queries ?? 0) - (b.num_queries ?? 0));
   if (!runs.length) return servingTabs + '<p class="empty">No Test 3 data for this serving mode.</p>';
 
   const largestRun = [...runs].filter(r => r.num_queries != null).sort((a, b) => b.num_queries - a.num_queries)[0];
@@ -1018,7 +1026,8 @@ function renderTest3(allRuns) {
 function wireTest3Charts(allRuns) {
   wireServingModeTabs();
   const modes = SERVING_MODE_ORDER.filter(m => allRuns.some(r => r.serving_mode === m));
-  const runs = filterByServingMode(allRuns, modes);
+  const runs = filterByServingMode(allRuns, modes)
+    .sort((a, b) => (a.num_queries ?? 0) - (b.num_queries ?? 0));
   if (!runs.length) return;
 
   const sortedByScale = [...runs].sort((a, b) => (a.num_queries ?? 0) - (b.num_queries ?? 0));
