@@ -1,0 +1,4 @@
+timestamp_iso,elapsed_s,mode,device,util_percent,memory_used_mb,memory_total_mb,power_draw_w,temperature_c
+2026-11-16T03:08:58.904511+00:00,0.0,gpu,gpu0:NVIDIA GeForce RTX 4070 SUPER,3.0,11341.0,12282.0,37.58,55.0
+2026-11-16T03:08:58.904511+00:00,0.0,gpu,gpu1:NVIDIA GeForce RTX 4070 SUPER,0.0,11323.0,12282.0,30.72,45.0
+2026-11-16T03:08:58.904511+00:00,0.0,cpu,cpu,10.1,9626.83984375,64059.51171875,,

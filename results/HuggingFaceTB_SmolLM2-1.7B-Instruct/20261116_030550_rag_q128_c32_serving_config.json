@@ -1,0 +1,1 @@
+{"model": "HuggingFaceTB/SmolLM2-1.7B-Instruct", "tensor_parallel_size": 1, "data_parallel_size": 2, "gpu_memory_utilization": 0.90}

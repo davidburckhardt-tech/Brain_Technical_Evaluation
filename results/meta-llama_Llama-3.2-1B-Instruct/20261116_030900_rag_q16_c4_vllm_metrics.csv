@@ -1,0 +1,4 @@
+timestamp_iso,elapsed_s,num_requests_running,num_requests_waiting,num_requests_swapped,gpu_cache_usage_perc,cpu_cache_usage_perc
+2026-11-16T03:09:00.692819+00:00,0.0,0.0,0.0,,,
+2026-11-16T03:09:01.711680+00:00,1.019,1.0,0.0,,,
+2026-11-16T03:09:02.735878+00:00,2.043,1.0,0.0,,,

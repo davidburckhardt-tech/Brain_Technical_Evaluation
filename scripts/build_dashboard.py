@@ -881,6 +881,9 @@ function renderTest2(allRuns) {
     ]);
   }
   html += '<div class="test-note">Simulated concurrent users (general, code, summary, knowledge), each running a conversation of 1+ turns, against the inference server directly.</div>';
+  if (!modes.includes('2gpu-tp') && modes.includes('2gpu-dp')) {
+    html += '<div class="chart-note">No tensor-parallel (2 GPU, TP) data for Test 2 : that sweep was accidentally run with the server still in 1-GPU mode, so it is shown under "1 GPU" instead. Test 1 and Test 3 do have real TP data for comparison.</div>';
+  }
   html += barChart(runs, r => `${r.concurrent_users ?? '?'}u`, r => r.overall_duration_s, {
     title: 'Total duration by concurrent users', subtitle: 'Simulated chatbot workload', unit: 's', caption: 'Values represent total wall-clock duration for the run.',
   });
